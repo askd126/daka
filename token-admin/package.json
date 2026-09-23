@@ -1,0 +1,14 @@
+{
+  "name": "hik-daka-token-admin",
+  "version": "1.0.0",
+  "description": "将海康 Token 验证后写入青龙多账号环境变量的局域网页面",
+  "private": false,
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.cjs",
+    "check": "node --check server.cjs && node --check ql_token_admin.cjs && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

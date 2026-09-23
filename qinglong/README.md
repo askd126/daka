@@ -72,3 +72,5 @@
 ## 订阅部署
 
 需要分享给其他青龙时，使用 [SUBSCRIPTION.md](./SUBSCRIPTION.md) 中的订阅配置。订阅不包含 Token，但会同步上述公开默认定位。
+
+多账号 Token 也可以通过 [Token 提交前端](../token-admin/README.md) 在可信局域网中添加。

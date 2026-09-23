@@ -1,102 +1,109 @@
-# 打卡小工具
+# 海康青龙自动打卡
 
-一个基于 Vue 3 + Vite 的前端打卡工具，无需独立后端，直接部署到 Vercel 即可使用。
+面向青龙面板的海康物联多账号自动考勤项目。通过公开 GitHub 仓库订阅后，青龙会自动创建上、下班任务；每个面板只需配置账号 Token，定位、时间和随机延迟均已提供默认值。
 
-## 功能特性
+> 请仅在本人有权使用的账号与考勤规则范围内运行，并遵守所在单位的相关制度。
 
-- 自动打卡，支持定时任务
-- 支持多语言（中文/英文）
-- 支持 Supabase 数据库集成，遥测打卡状态
-- 一键部署到 Vercel
+## 功能
 
-## 青龙订阅
+- 青龙公开仓库订阅，自动添加和更新任务。
+- 支持 `HIK_DAKA_TOKEN`、`HIK_DAKA_TOKEN_2` 等多账号变量。
+- 每天查询官方节假日，官方节假日跳过；普通周末仍按海康考勤规则判断。
+- 上班随机等待 0–5 分钟，下班随机等待 0–40 分钟。
+- 提交前检查今日状态，避免重复打卡。
+- 所有账号结果合并为一条青龙系统通知，可使用已配置的 Server酱等通知渠道。
+- 提供开源的局域网 Token 提交页面，验证后自动写入青龙。
 
-需要在青龙面板中自动执行上、下班打卡，可按照 [青龙订阅部署说明](./qinglong/SUBSCRIPTION.md) 添加公开仓库订阅。订阅支持多账号、官方节假日跳过、随机延迟和单条汇总通知；仓库不保存 Token，并内置可通过环境变量覆盖的公开默认定位。
+## 一、添加青龙订阅
 
----
+进入青龙面板的“订阅管理”，新建公开仓库订阅：
 
-## 部署到 Vercel
+| 配置项 | 内容 |
+| --- | --- |
+| 名称 | `海康自动打卡` |
+| 类型 | `公开仓库` |
+| 仓库地址 | `https://github.com/askd126/daka.git` |
+| 分支 | `main` |
+| 定时类型 | `crontab` |
+| 定时规则 | `0 3 * * *` |
+| 白名单 | `qinglong/subscription/hik_daka_` |
+| 黑名单 | 留空 |
+| 依赖文件 | `qinglong/hik_daka.js` |
+| 文件后缀 | `js` |
+| 自动添加任务 | 开启 |
+| 自动删除失效任务 | 开启 |
 
-### 方式一：一键部署（推荐）
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Little-King2022/daka)
-1. 点击上方 **Deploy** 按钮。
-2. 登录或注册 Vercel 账号。
-3. Vercel 会自动 Fork 本仓库到你的 GitHub 账号，并进入部署向导。
-4. 在 **Configure Project** 页面按需填写环境变量（见下方[环境变量](#环境变量)说明），也可以跳过，部署后再在项目设置里添加。
-5. 点击 **Deploy**，等待构建完成（约 1 分钟）。
-6. 部署成功后，Vercel 会分配一个 `*.vercel.app` 域名，直接访问即可使用。
+保存后手动运行一次订阅。成功后会自动创建：
 
-### 方式二：手动导入已有仓库
+| 任务 | 定时 | 执行范围 |
+| --- | --- | --- |
+| 海康上班打卡 | `15 8 * * *` | 08:15–08:20 |
+| 海康下班打卡 | `30 21 * * *` | 21:30–22:10 |
 
-1. 先将本仓库 **Fork** 到你自己的 GitHub 账号。
-2. 打开 [vercel.com/new](https://vercel.com/new)，选择 **Import Git Repository**，授权并选择刚刚 Fork 的仓库。
-3. **Framework Preset** 选择 `Vite`（Vercel 通常会自动识别）。
-4. **Build & Output Settings** 保持默认即可：
-   - Build Command：`vite build`
-   - Output Directory：`dist`
-   - Install Command：`npm install`
-5. 展开 **Environment Variables**，按需添加环境变量（见下方说明）。
-6. 点击 **Deploy**，等待构建完成。
+更完整的字段说明和排错方法见 [青龙订阅部署文档](./qinglong/SUBSCRIPTION.md)。
 
-### 部署后配置环境变量
+## 二、添加账号 Token
 
-如果部署时未填写环境变量，或后续需要修改，可在 Vercel 控制台操作：
+在青龙“环境变量”页面新增并启用：
 
-1. 进入你的 Vercel 项目 → **Settings** → **Environment Variables**。
-2. 添加所需变量，保存后点击 **Redeploy** 使配置生效。
+```text
+名称：HIK_DAKA_TOKEN
+值：账号的 www_token
+```
 
----
+添加其他账号时继续使用：
 
-## 环境变量
+```text
+HIK_DAKA_TOKEN_2
+HIK_DAKA_TOKEN_3
+HIK_DAKA_TOKEN_4
+```
 
-项目根目录的 `vercel.json` 已为以下变量设置了默认值，无需额外配置即可正常运行。如需开启相关功能，在 Vercel 控制台覆盖对应变量值即可。
+仓库不会保存任何账号 Token。脚本内置了公开默认定位；如需使用其他地点，可通过 `HIK_DAKA_LOCATION`、`HIK_DAKA_LONGITUDE`、`HIK_DAKA_LATITUDE` 等变量覆盖，详见 [青龙脚本文档](./qinglong/README.md)。
 
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `VITE_ENABLE_SUPABASE_LOG` | `false` | 是否启用 Supabase 日志记录。设为 `true` 时，打卡、登录等操作会写入 Supabase 数据库 |
-| `VITE_ENABLE_TIME_RESTRICTION` | `false` | 是否启用打卡时间限制。设为 `true` 时，凌晨 02:00 – 08:30 期间禁止打卡 |
-| `VITE_SUPABASE_KEY` | —      | Supabase 匿名密钥（启用 Supabase 日志记录时必填） |
+## 三、获取 Token
 
-> **提示**：`vercel.json` 中的 `env` 字段为构建时默认值，Vercel 控制台中手动设置的同名变量优先级更高，会覆盖默认值。
+1. 打开 <https://www.hikiot.com/portal/login> 并登录。
+2. 按 `F12` 打开开发者工具。
+3. 进入“应用程序（Application）→ 存储 → Cookie”。
+4. 选择 `https://www.hikiot.com`。
+5. 找到 `www_token`，复制其 36 位值。
 
----
+## 四、首次安全检查
 
-## Supabase 集成
+在自动创建的任务命令末尾临时添加：
 
-如需启用数据库记录功能，请参考 [README_SUPABASE.md](./README_SUPABASE.md)。
+```text
+--check
+```
 
----
+手动运行任务。检查模式只验证 Token、节假日和今日状态，不会提交打卡或发送汇总通知。确认日志正常后移除 `--check`。
 
-## 本地开发
+## 五、Token 提交前端
+
+仓库包含开源的局域网 Token 管理页面：
 
 ```sh
-# 安装依赖
-npm install
-
-# 开发模式
-npm run dev
-
-# 生产构建
-npm run build
+git clone https://github.com/askd126/daka.git
+cd daka/token-admin
+npm start
 ```
 
-本地开发时，在项目根目录新建 `.env.local` 文件，按需填写环境变量：
+默认监听 `0.0.0.0:5710`。页面会验证 Token，并自动保存为下一个可用的青龙多账号变量。该页面没有登录系统，只能在可信局域网内使用，禁止映射到公网。
 
+完整安装、环境变量和安全说明见 [Token 提交前端文档](./token-admin/README.md)。
+
+## 目录说明
+
+```text
+qinglong/                 青龙核心脚本、订阅入口与部署文档
+token-admin/              开源 Token 提交前端及青龙辅助程序
+docs/original-web.md      原版 Vue/Vercel 网页打卡工具说明
+src/                      原版 Vue 前端源码
 ```
-VITE_ENABLE_SUPABASE_LOG=false
-VITE_ENABLE_TIME_RESTRICTION=false
-VITE_SUPABASE_KEY=your-supabase-anon-key
-```
 
----
+原版 Vue 网页打卡工具仍保留在仓库中，部署方法已移至 [原版网页说明](./docs/original-web.md)。
 
-## 技术栈
+## 开源许可
 
-- [Vue 3](https://vuejs.org/)
-- [Vite](https://vite.dev/)
-- [TDesign Mobile Vue](https://tdesign.tencent.com/mobile-vue/)
-- [Supabase](https://supabase.com/)（可选）
-
-## License
-
-MIT
+本项目使用 [MIT License](./LICENSE)。

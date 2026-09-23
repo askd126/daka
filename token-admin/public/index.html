@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="csrf-token" content="{{CSRF_TOKEN}}" />
+    <meta name="color-scheme" content="light dark" />
+    <title>海康打卡账号管理</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="eyebrow"><span class="status-dot"></span> 青龙多账号管理</div>
+        <h1>添加打卡账号</h1>
+        <p>提交前会验证 Token。验证成功后自动保存到青龙，并由现有上、下班任务统一处理。</p>
+      </section>
+
+      <section class="card" aria-labelledby="form-title">
+        <div class="card-head">
+          <div>
+            <p class="label">当前状态</p>
+            <h2 id="form-title"><span id="account-count">—</span> 个账号已配置</h2>
+          </div>
+          <span id="panel-state" class="pill pending">正在连接青龙</span>
+        </div>
+
+        <form id="token-form" novalidate>
+          <label for="token">海康 Token</label>
+          <div class="token-field">
+            <input
+              id="token"
+              name="token"
+              type="password"
+              inputmode="text"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="36"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              aria-describedby="token-help"
+              required
+            />
+            <button id="toggle-visibility" class="ghost" type="button" aria-label="显示 Token">显示</button>
+          </div>
+          <div class="field-meta">
+            <span id="token-help">36 位 UUID，仅发送到这台管理服务</span>
+            <span id="token-length">0 / 36</span>
+          </div>
+
+          <button id="submit-button" class="primary" type="submit">
+            <span class="button-label">验证并添加</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+        </form>
+
+        <div id="result" class="result" role="status" aria-live="polite" hidden></div>
+      </section>
+
+      <section class="guide" aria-labelledby="guide-title">
+        <div class="guide-head">
+          <div>
+            <p class="label">Token 获取指南</p>
+            <h2 id="guide-title">从海康物联复制 www_token</h2>
+          </div>
+          <a
+            class="login-link"
+            href="https://www.hikiot.com/portal/login"
+            target="_blank"
+            rel="noopener noreferrer"
+          >打开登录页 <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <ol class="steps">
+          <li><span>1</span><p>点击上方“打开登录页”，使用与海康物联小程序相同的手机号和短信验证码登录。</p></li>
+          <li><span>2</span><p>进入工作台后按 <kbd>F12</kbd>，或在页面空白处右键选择“检查”，打开开发者工具。</p></li>
+          <li><span>3</span><p>打开“应用程序（Application）”选项卡；如果未显示，可在顶部的 <strong>»</strong> 菜单中找到。</p></li>
+          <li><span>4</span><p>依次展开“存储 → Cookie”，选择 <code>https://www.hikiot.com</code>。</p></li>
+          <li><span>5</span><p>找到名称为 <code>www_token</code> 的记录，复制“值（Value）”栏中的 36 位内容，粘贴到上方输入框并提交。</p></li>
+        </ol>
+
+        <p class="expiry-note">Token 通常有效 30 天；失效后按相同步骤重新获取并提交。</p>
+      </section>
+
+      <section class="privacy-note">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6.2c0 4.7 3.2 9.1 7.5 10.8 4.3-1.7 7.5-6.1 7.5-10.8V5L12 2Zm0 2.2 5.5 2.2v4.8c0 3.6-2.2 7.1-5.5 8.6-3.3-1.5-5.5-5-5.5-8.6V6.4L12 4.2Zm-1.1 4v3H8.5v2h2.4v2.5h2.2v-2.5h2.4v-2h-2.4v-3h-2.2Z"/></svg>
+        <p><strong>局域网管理页面</strong><br />服务监听所有本机网卡。Token 不写入浏览器存储、URL 或应用日志，请勿映射到公网。</p>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

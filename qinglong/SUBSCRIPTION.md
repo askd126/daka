@@ -45,6 +45,8 @@
 
 Token 获取入口：<https://www.hikiot.com/portal/login>。登录后按 `F12`，在“应用程序 → 存储 → Cookie → https://www.hikiot.com”中复制 `www_token`。
 
+不希望手动管理多账号变量时，可使用仓库内的 [Token 提交前端](../token-admin/README.md)，在可信局域网中验证 Token 并自动写入青龙。
+
 ## 三、验证
 
 在任一自动创建的任务后追加 `--check` 并运行一次。检查模式只验证 Token、定位配置、节假日和今日状态，不会提交打卡，也不会发送汇总通知。验证完成后移除 `--check`。
