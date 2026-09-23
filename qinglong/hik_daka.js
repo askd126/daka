@@ -251,6 +251,18 @@ const isOnLeave = (status, shift) => getTodayDetails(status).some((item) => {
   return LEAVE_KEYWORDS.some((keyword) => statusText.includes(keyword));
 });
 
+// 通知里的班次行，例如「上班 08:30 → 08:16 正常」「上班 08:30 → 请假」
+const formatShiftLine = (item) => {
+  const desc = item?.desc || item?.name || item?.clockName || '班次';
+  const label = item?.standardTime ? `${desc} ${item.standardTime}` : desc;
+  const statusText = String(item?.statusDesc || '').trim();
+  const clockTime = String(item?.clockTime || '').trim();
+  const clocked = item?.clocked && clockTime && clockTime !== '--';
+  const actual = clocked ? clockTime : (statusText || '未打卡');
+  const suffix = clocked && statusText && statusText !== actual ? ` ${statusText}` : '';
+  return `${label} → ${actual}${suffix}`;
+};
+
 const getAccount = async (token, timeoutMs) => {
   const result = await requestJson('GET', '/api-saas/v1/account/detail', token, undefined, {}, timeoutMs);
   if (result?.code !== 0 || !result?.data) throw new Error(result?.msg || 'Token 校验失败');
@@ -331,23 +343,41 @@ const getConfiguredAccounts = (environment = process.env) => {
   });
 };
 
+const STATUS_ICONS = {
+  success: '✅',
+  skipped: '⏭️',
+  failed: '❌',
+};
+
+// 标题保持固定：sendNotify.js 的 SKIP_PUSH_TITLE 按标题精确匹配，改动会导致跳过规则失效。
+const buildNotificationContent = (results, globalMessage = '') => {
+  const lines = [];
+  if (globalMessage) lines.push(globalMessage);
+
+  for (const result of results) {
+    lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${result.accountName}：${result.message}`);
+    if (result.rule) lines.push(`· 班次规则 ${result.rule}`);
+    for (const item of (result.details || []).slice(0, 4)) {
+      lines.push(`· ${formatShiftLine(item)}`);
+    }
+    if (result.attempts > 1) lines.push(`· 共尝试 ${result.attempts} 次`);
+  }
+
+  if (results.length) {
+    const countOf = (status) => results.filter((item) => item.status === status).length;
+    lines.push('', `成功 ${countOf('success')} 个，跳过 ${countOf('skipped')} 个，失败 ${countOf('failed')} 个`);
+  }
+
+  lines.push(`时间：${timestamp()}`);
+  return lines.join('\n');
+};
+
 const sendSummaryNotification = async (shift, results, globalMessage = '') => {
   const shiftName = shift === 'morning' ? '上班' : '下班';
   const title = `海康${shiftName}打卡结果`;
-  const icons = {
-    success: '✅',
-    skipped: '⏭️',
-    failed: '❌',
-  };
-  const lines = [];
-  if (globalMessage) lines.push(globalMessage);
-  for (const result of results) {
-    lines.push(`${icons[result.status] || 'ℹ️'} ${result.accountName}：${result.message}`);
-  }
-  lines.push('', `时间：${timestamp()}`);
+  const content = buildNotificationContent(results, globalMessage);
 
   try {
-    const content = lines.join('\n');
     if (globalThis.QLAPI && typeof globalThis.QLAPI.systemNotify === 'function') {
       const response = await globalThis.QLAPI.systemNotify({ title, content });
       if (response?.code && response.code !== 200) {
@@ -381,22 +411,24 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
     withRetry(() => getTodayStatus(token, config.timeoutMs), `[${accountName}] 获取今日状态`),
   ]);
 
+  const context = { accountName, rule, details: getTodayDetails(todayStatus) };
+
   if (!config.allowLeave && isOnLeave(todayStatus, shift)) {
     const shiftName = shift === 'morning' ? '上班' : '下班';
     accountLog(`今日${shiftName}状态为请假，无需打卡，本次跳过`);
-    return { accountName, status: 'skipped', message: '请假无需打卡，跳过' };
+    return { ...context, status: 'skipped', message: '请假无需打卡，跳过' };
   }
   if (isAlreadyCheckedIn(todayStatus, shift)) {
     accountLog('今日对应班次已完成打卡，本次安全跳过');
-    return { accountName, status: 'skipped', message: '已完成打卡，跳过' };
+    return { ...context, status: 'skipped', message: '已完成打卡，跳过' };
   }
   if (rule.includes('休息') && !config.allowRestDay) {
     accountLog('今日考勤规则为休息，本次安全跳过');
-    return { accountName, status: 'skipped', message: '考勤规则为休息，跳过' };
+    return { ...context, status: 'skipped', message: '考勤规则为休息，跳过' };
   }
   if (args.checkOnly) {
     accountLog('检查模式完成：尚未打卡，但不会提交打卡请求');
-    return { accountName, status: 'skipped', message: '检查通过，未提交打卡' };
+    return { ...context, status: 'skipped', message: '检查通过，未提交打卡' };
   }
 
   let lastError = null;
@@ -406,7 +438,7 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
       const result = await checkIn(token, config);
       if (result?.code === 0) {
         accountLog('打卡成功');
-        return { accountName, status: 'success', message: '打卡成功' };
+        return { ...context, status: 'success', message: '打卡成功', attempts: attempt };
       }
       lastError = new Error(result?.msg || '接口返回打卡失败');
     } catch (error) {
@@ -421,7 +453,13 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
     }
   }
 
-  throw lastError || new Error('打卡失败');
+  // 把账号和班次信息挂到错误上，失败时汇总通知里也能看到是谁、哪个班次、考勤状态如何。
+  const failure = lastError || new Error('打卡失败');
+  failure.accountName = accountName;
+  failure.rule = rule;
+  failure.details = context.details;
+  failure.attempts = config.retries;
+  throw failure;
 };
 
 const main = async () => {
@@ -481,8 +519,16 @@ const main = async () => {
     try {
       results.push(await runAccount(account, config, args, shift));
     } catch (error) {
-      results.push({ accountName: account.envName, status: 'failed', message: error.message });
-      log(`[${account.envName}] 处理失败：${error.message}`);
+      const accountName = error.accountName || account.envName;
+      results.push({
+        accountName,
+        status: 'failed',
+        message: error.message,
+        rule: error.rule,
+        details: error.details,
+        attempts: error.attempts,
+      });
+      log(`[${accountName}] 处理失败：${error.message}`);
     }
   }
 
@@ -514,6 +560,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildNotificationContent,
   getAccount,
   getConfiguredAccounts,
   getChinaHolidayStatus,
