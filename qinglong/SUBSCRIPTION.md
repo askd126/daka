@@ -42,7 +42,8 @@
 | `HIK_DAKA_RANDOM_RADIUS` | 否 | 定位随机偏移半径，默认 `50` 米 |
 | `HIK_DAKA_RETRIES` | 否 | 失败重试次数，默认 `3` |
 | `HIK_DAKA_ALLOW_REST` | 否 | 默认 `false`，考勤规则为休息时跳过 |
-| `HIK_DAKA_ALLOW_LEAVE` | 否 | 默认 `false`，今日状态为请假时跳过；设为 `true` 可在请假期间照常打卡 |
+
+请假是否打卡不占用环境变量，而是脚本开头的 `const ALLOW_LEAVE_DAYS = false;`（`false` 为请假不打卡）。要改这个值，请直接修改仓库里的 `qinglong/hik_daka.js` 后推送，订阅会在下次更新时同步；直接改面板里的脚本会被订阅更新覆盖。
 
 Token 获取入口：<https://www.hikiot.com/portal/login>。登录后按 `F12`，在“应用程序 → 存储 → Cookie → https://www.hikiot.com”中复制 `www_token`。
 

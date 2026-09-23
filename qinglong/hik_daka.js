@@ -22,6 +22,10 @@ const DEFAULTS = {
   timeoutMs: 30000,
 };
 
+// 请假当天是否照常打卡：false = 请假不打卡，true = 请假也打卡。
+// 这个开关直接改脚本，不通过青龙环境变量配置。
+const ALLOW_LEAVE_DAYS = false;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const timestamp = () => new Date().toLocaleString('zh-CN', { hour12: false });
 const log = (message) => console.log(`[${timestamp()}] ${message}`);
@@ -422,7 +426,7 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
   const personName = String(todayStatus?.personName || '').trim();
   const context = { accountName, personName, rule, details: getTodayDetails(todayStatus) };
 
-  if (!config.allowLeave && isOnLeave(todayStatus, shift)) {
+  if (!ALLOW_LEAVE_DAYS && isOnLeave(todayStatus, shift)) {
     const shiftName = shift === 'morning' ? '上班' : '下班';
     accountLog(`今日${shiftName}状态为请假，无需打卡，本次跳过`);
     return { ...context, status: 'skipped', message: '请假无需打卡，跳过' };
@@ -497,7 +501,6 @@ const main = async () => {
     retryDelayMs: readNumber('HIK_DAKA_RETRY_DELAY_MS', DEFAULTS.retryDelayMs, { min: 1000, max: 60000, integer: true }),
     timeoutMs: readNumber('HIK_DAKA_TIMEOUT_MS', DEFAULTS.timeoutMs, { min: 3000, max: 60000, integer: true }),
     allowRestDay: readBoolean('HIK_DAKA_ALLOW_REST', false),
-    allowLeave: readBoolean('HIK_DAKA_ALLOW_LEAVE', false),
   };
 
   log(`任务开始：${shift === 'morning' ? '上班' : '下班'}检查，共 ${accounts.length} 个账号`);
