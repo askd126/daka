@@ -83,7 +83,8 @@
         "notYet": "未打卡",
         "late": "迟到",
         "earlyLeave": "早退",
-        "missing": "缺卡"
+        "missing": "缺卡",
+        "leave": "请假"
       }
     }
   },
@@ -190,7 +191,8 @@
       "autoTrigger": "计划时间 {time}",
       "checkInSuccess": "打卡成功",
       "apiFailure": "接口返回失败",
-      "alreadyCheckedIn": "已检测到打卡记录"
+      "alreadyCheckedIn": "已检测到打卡记录",
+      "onLeave": "今日为请假状态，无需打卡"
     },
     "logAttempt": "第 {n} 次",
     "logAttempts": "共 {n} 次"

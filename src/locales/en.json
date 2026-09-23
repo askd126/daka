@@ -83,7 +83,8 @@
         "notYet": "Not yet",
         "late": "Late",
         "earlyLeave": "Early leave",
-        "missing": "Missed"
+        "missing": "Missed",
+        "leave": "On leave"
       }
     }
   },
@@ -190,7 +191,8 @@
       "autoTrigger": "Scheduled at {time}",
       "checkInSuccess": "Check-in succeeded",
       "apiFailure": "API returned failure",
-      "alreadyCheckedIn": "Existing check-in record found"
+      "alreadyCheckedIn": "Existing check-in record found",
+      "onLeave": "On leave today — no check-in needed"
     },
     "logAttempt": "Attempt {n}",
     "logAttempts": "{n} attempts"

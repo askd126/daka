@@ -42,6 +42,7 @@
 | `HIK_DAKA_RANDOM_RADIUS` | 否 | 定位随机偏移半径，默认 `50` 米 |
 | `HIK_DAKA_RETRIES` | 否 | 失败重试次数，默认 `3` |
 | `HIK_DAKA_ALLOW_REST` | 否 | 默认 `false`，考勤规则为休息时跳过 |
+| `HIK_DAKA_ALLOW_LEAVE` | 否 | 默认 `false`，今日状态为请假时跳过；设为 `true` 可在请假期间照常打卡 |
 
 Token 获取入口：<https://www.hikiot.com/portal/login>。登录后按 `F12`，在“应用程序 → 存储 → Cookie → https://www.hikiot.com”中复制 `www_token`。
 
@@ -56,5 +57,6 @@ Token 获取入口：<https://www.hikiot.com/portal/login>。登录后按 `F12`�
 - 支持多个账号顺序执行，并将所有账号结果合并成一条青龙系统通知。
 - 命中国务院公布的官方节假日时跳过；普通周末仍读取海康当天考勤规则。
 - 已完成对应班次时安全跳过，避免重复提交。
+- 今日状态为请假时跳过，不会提交打卡。
 - 节假日数据无法确认时安全失败，不提交打卡。
 - 仓库不包含任何账号 Token；默认定位已公开写入脚本，可通过对应环境变量覆盖。

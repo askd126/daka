@@ -220,14 +220,35 @@ const collectDetails = (status) => [
   ...(status?.others || []).flatMap((item) => item?.details || []),
 ];
 
-const isAlreadyCheckedIn = (status, shift) => collectDetails(status).some((item) => {
-  const statusText = String(item?.statusDesc || '');
-  const label = `${item?.desc || ''} ${item?.name || ''} ${item?.clockName || ''}`;
-  const completed = statusText.includes('已打卡') || statusText.includes('正常');
-  if (!completed) return false;
+const getDetailLabel = (item) => `${item?.desc || ''} ${item?.name || ''} ${item?.clockName || ''}`;
+
+const matchShift = (label, shift) => {
   if (shift === 'morning') return label.includes('上班') || label.includes('签到');
   if (shift === 'evening') return label.includes('下班') || label.includes('签退');
   return true;
+};
+
+const isAlreadyCheckedIn = (status, shift) => collectDetails(status).some((item) => {
+  const statusText = String(item?.statusDesc || '');
+  const completed = statusText.includes('已打卡') || statusText.includes('正常');
+  if (!completed) return false;
+  return matchShift(getDetailLabel(item), shift);
+});
+
+// 请假等各种“假”都不需要打卡。海康用 statusDesc 文本表达考勤结论，具体文案随企业配置变化。
+const LEAVE_KEYWORDS = ['请假', '休假', '调休', '年假', '事假', '病假', '婚假', '产假', '陪产假', '丧假', '公假'];
+
+// 请假只认今日记录：others 可能混入其它日期的记录，误判会导致漏打卡。
+const getTodayDetails = (status) => {
+  const currentDetails = status?.current?.details || [];
+  if (currentDetails.length) return currentDetails;
+  return (status?.others || []).flatMap((item) => item?.details || []);
+};
+
+const isOnLeave = (status, shift) => getTodayDetails(status).some((item) => {
+  if (!matchShift(getDetailLabel(item), shift)) return false;
+  const statusText = String(item?.statusDesc || '');
+  return LEAVE_KEYWORDS.some((keyword) => statusText.includes(keyword));
 });
 
 const getAccount = async (token, timeoutMs) => {
@@ -360,6 +381,11 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
     withRetry(() => getTodayStatus(token, config.timeoutMs), `[${accountName}] 获取今日状态`),
   ]);
 
+  if (!config.allowLeave && isOnLeave(todayStatus, shift)) {
+    const shiftName = shift === 'morning' ? '上班' : '下班';
+    accountLog(`今日${shiftName}状态为请假，无需打卡，本次跳过`);
+    return { accountName, status: 'skipped', message: '请假无需打卡，跳过' };
+  }
   if (isAlreadyCheckedIn(todayStatus, shift)) {
     accountLog('今日对应班次已完成打卡，本次安全跳过');
     return { accountName, status: 'skipped', message: '已完成打卡，跳过' };
@@ -423,6 +449,7 @@ const main = async () => {
     retryDelayMs: readNumber('HIK_DAKA_RETRY_DELAY_MS', DEFAULTS.retryDelayMs, { min: 1000, max: 60000, integer: true }),
     timeoutMs: readNumber('HIK_DAKA_TIMEOUT_MS', DEFAULTS.timeoutMs, { min: 3000, max: 60000, integer: true }),
     allowRestDay: readBoolean('HIK_DAKA_ALLOW_REST', false),
+    allowLeave: readBoolean('HIK_DAKA_ALLOW_LEAVE', false),
   };
 
   log(`任务开始：${shift === 'morning' ? '上班' : '下班'}检查，共 ${accounts.length} 个账号`);
@@ -490,5 +517,6 @@ module.exports = {
   getAccount,
   getConfiguredAccounts,
   getChinaHolidayStatus,
+  isOnLeave,
   sendSummaryNotification,
 };

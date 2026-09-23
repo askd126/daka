@@ -443,6 +443,23 @@ const findNextSchedule = () => {
   scheduleStatusText.value = t('schedule.tomorrow');
 };
 
+// 班次标签匹配：上班/签到、下班/签退
+const matchShiftLabel = (label, shift) => {
+  if (shift === 'morning') return label.includes('上班') || label.includes('签到');
+  if (shift === 'evening') return label.includes('下班') || label.includes('签退');
+  return true;
+};
+
+// 请假等各种假别都不需要打卡
+const LEAVE_KEYWORDS = ['请假', '休假', '调休', '年假', '事假', '病假', '婚假', '产假', '陪产假', '丧假', '公假'];
+
+// 请假只认今日记录：others 可能混入其它日期的记录，误判会导致漏打卡
+const todayDetails = () => {
+  const current = today_status.value?.current?.details ?? [];
+  if (current.length) return current;
+  return (today_status.value?.others ?? []).flatMap(item => item?.details ?? []);
+};
+
 // Check if already checked in for a given shift
 const isAlreadyCheckedIn = (shift) => {
   const details = [
@@ -456,9 +473,20 @@ const isAlreadyCheckedIn = (shift) => {
     const label = `${d.desc ?? ''} ${d.name ?? ''} ${d.clockName ?? ''}`;
     const isDone = desc.includes('\u5df2\u6253\u5361') || desc.includes('\u6b63\u5e38');
     if (!isDone) return false;
-    if (shift === 'morning') return label.includes('\u4e0a\u73ed') || label.includes('\u7b7e\u5230');
-    if (shift === 'evening') return label.includes('\u4e0b\u73ed') || label.includes('\u7b7e\u9000');
-    return isDone;
+    return matchShiftLabel(label, shift);
+  });
+};
+
+// 今日该班次为请假状态时无需打卡
+const isOnLeave = (shift) => {
+  const details = todayDetails();
+  if (!details.length) return false;
+
+  return details.some(d => {
+    const label = `${d.desc ?? ''} ${d.name ?? ''} ${d.clockName ?? ''}`;
+    if (!matchShiftLabel(label, shift)) return false;
+    const desc = String(d.statusDesc || '');
+    return LEAVE_KEYWORDS.some(keyword => desc.includes(keyword));
   });
 };
 
@@ -517,6 +545,12 @@ const checkScheduleAndRun = async () => {
     isScheduleTriggered.value = true;
     try {
       await get_today_status(true);
+      if (isOnLeave(shift)) {
+        markScheduleRun(shift, 'skipped', 'on leave');
+        addScheduleLog({ type: 'skipped', shift, messageKey: 'onLeave' });
+        findNextSchedule();
+        continue;
+      }
       if (isAlreadyCheckedIn(shift)) {
         markScheduleRun(shift, 'skipped', 'already checked in');
         addScheduleLog({ type: 'skipped', shift, messageKey: 'alreadyCheckedIn' });
@@ -1115,6 +1149,8 @@ const logout = () => {
 };
 
 /* ── Status helpers ── */
+const isLeaveStatus = (statusDesc) => LEAVE_KEYWORDS.some(keyword => String(statusDesc).includes(keyword));
+
 const localizeStatus = (statusDesc) => {
   if (!statusDesc) return '';
   const s = String(statusDesc);
@@ -1124,12 +1160,14 @@ const localizeStatus = (statusDesc) => {
   if (s.includes('迟到')) return t('cards.today.status.late');
   if (s.includes('早退')) return t('cards.today.status.earlyLeave');
   if (s.includes('缺卡')) return t('cards.today.status.missing');
+  if (isLeaveStatus(s)) return t('cards.today.status.leave');
   return s;
 };
 
 const statusKind = (statusDesc) => {
   if (!statusDesc) return 'pending';
   if (statusDesc.includes('已打卡') || statusDesc.includes('正常')) return 'done';
+  if (isLeaveStatus(statusDesc)) return 'leave';
   if (statusDesc.includes('缺卡') || statusDesc.includes('迟到') || statusDesc.includes('早退')) return 'missing';
   return 'pending';
 };
@@ -1821,6 +1859,7 @@ watch(canUseAutoSchedule, (canUse) => {
   --text-tertiary: oklch(0.65 0.005 155);
   --border: oklch(0.90 0.01 155);
   --error: oklch(0.6 0.2 25);
+  --leave: oklch(0.68 0.14 70);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08);
@@ -2198,6 +2237,7 @@ body::-webkit-scrollbar,
   background: var(--text-tertiary);
 }
 .dot.done { background: var(--green-500); }
+.dot.leave { background: var(--leave); }
 .dot.missing { background: var(--error); }
 .dot.pending { background: var(--text-tertiary); }
 .row-desc {
@@ -2210,6 +2250,7 @@ body::-webkit-scrollbar,
   text-align: right;
 }
 .row-status.done { color: var(--green-500); }
+.row-status.leave { color: var(--leave); }
 .row-status.missing { color: var(--error); }
 .clock-time {
   font-weight: 600; font-variant-numeric: tabular-nums;
