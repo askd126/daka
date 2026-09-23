@@ -329,6 +329,9 @@ const checkIn = async (token, config) => {
 
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// HIK_DAKA_TOKEN_3 ↔ HIK_DAKA_PUSH_KEY_3。按编号配对，不依赖环境变量的排序。
+const pushEnvNameFor = (tokenEnvName) => tokenEnvName.replace('HIK_DAKA_TOKEN', 'HIK_DAKA_PUSH_KEY');
+
 const getConfiguredAccounts = (environment = process.env) => {
   const entries = Object.entries(environment)
     .filter(([name, value]) => /^HIK_DAKA_TOKEN(?:_\d+)?$/.test(name) && String(value || '').trim())
@@ -343,7 +346,10 @@ const getConfiguredAccounts = (environment = process.env) => {
     const token = String(value).trim();
     if (seen.has(token)) return [];
     seen.add(token);
-    return [{ envName, token }];
+    const pushEnvName = pushEnvNameFor(envName);
+    // 没配 SendKey 的账号只进管理员汇总，不推给本人。
+    const pushKey = String(environment[pushEnvName] || '').trim();
+    return [{ envName, token, pushEnvName, pushKey }];
   });
 };
 
@@ -351,6 +357,78 @@ const STATUS_ICONS = {
   success: '✅',
   skipped: '⏭️',
   failed: '❌',
+};
+
+// Server酱直连推送。个人推送必须自带 SendKey，不能复用 sendNotify.js：
+// 那里的 key 是模块加载时从 process.env.PUSH_KEY 拍下的快照，函数不接受 key 参数。
+const SERVER_CHAN_TURBO_PATTERN = /^sctp(\d+)t/i;
+
+const getServerChanUrl = (sendKey) => {
+  const matched = String(sendKey).match(SERVER_CHAN_TURBO_PATTERN);
+  return matched && matched[1]
+    ? `https://${matched[1]}.push.ft07.com/send/${sendKey}.send`
+    : `https://sctapi.ftqq.com/${sendKey}.send`;
+};
+
+// 日志里只出现前 6 位，避免完整 SendKey 落盘。
+const maskKey = (sendKey) => (sendKey ? `${String(sendKey).slice(0, 6)}…` : '');
+
+const requestForm = (urlString, fields, timeoutMs) => new Promise((resolve, reject) => {
+  const payload = new URLSearchParams(fields).toString();
+  const url = new URL(urlString);
+  const req = https.request({
+    protocol: url.protocol,
+    hostname: url.hostname,
+    port: url.port || 443,
+    path: `${url.pathname}${url.search}`,
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'content-length': Buffer.byteLength(payload),
+      'User-Agent': 'qinglong-hik-daka/1.0',
+    },
+    timeout: timeoutMs,
+  }, (res) => {
+    const chunks = [];
+    res.on('data', (chunk) => chunks.push(chunk));
+    res.on('end', () => {
+      const text = Buffer.concat(chunks).toString('utf8');
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        reject(new Error(`Server酱 HTTP ${res.statusCode}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(text));
+      } catch {
+        reject(new Error('Server酱返回了无法解析的数据'));
+      }
+    });
+  });
+
+  req.on('timeout', () => req.destroy(new Error(`Server酱请求超过 ${timeoutMs}ms`)));
+  req.on('error', reject);
+  req.write(payload);
+  req.end();
+});
+
+const pushToServerChan = async (sendKey, title, content, timeoutMs = 15000) => {
+  // 微信里单个 \n 不换行，需要两个，与 sendNotify.js 的处理保持一致。
+  // 旧版接口收 text，Turbo 版收 title，两个都带以兼容两代 SendKey。
+  const desp = content.replace(/[\n\r]/g, '\n\n');
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const data = await requestForm(getServerChanUrl(sendKey), { title, text: title, desp }, timeoutMs);
+      if (data?.errno === 0 || data?.code === 0) return { duplicate: false };
+      // 1024：一分钟内发送了相同内容，说明前一条已经送达，不当成失败。
+      if (data?.errno === 1024) return { duplicate: true };
+      lastError = new Error(data?.errmsg || data?.message || JSON.stringify(data));
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 2) await sleep(1000);
+  }
+  throw lastError || new Error('Server酱推送失败');
 };
 
 // 优先显示考勤系统里的真实姓名，昵称放在括号里便于和环境变量备注对照。
@@ -361,18 +439,26 @@ const displayName = (result) => {
   return personName || accountName || '未知账号';
 };
 
+// 账号的班次明细，汇总通知和个人推送共用，保证两处排版一致。
+const buildAccountLines = (result) => {
+  const lines = [];
+  if (result.rule) lines.push(`· 班次规则 ${result.rule}`);
+  for (const item of (result.details || []).slice(0, 4)) {
+    lines.push(`· ${formatShiftLine(item)}`);
+  }
+  if (result.attempts > 1) lines.push(`· 共尝试 ${result.attempts} 次`);
+  return lines;
+};
+
 // 标题保持固定：sendNotify.js 的 SKIP_PUSH_TITLE 按标题精确匹配，改动会导致跳过规则失效。
 const buildNotificationContent = (results, globalMessage = '') => {
   const lines = [];
   if (globalMessage) lines.push(globalMessage);
 
   for (const result of results) {
-    lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${displayName(result)}：${result.message}`);
-    if (result.rule) lines.push(`· 班次规则 ${result.rule}`);
-    for (const item of (result.details || []).slice(0, 4)) {
-      lines.push(`· ${formatShiftLine(item)}`);
-    }
-    if (result.attempts > 1) lines.push(`· 共尝试 ${result.attempts} 次`);
+    const note = result.pushError ? `｜本人推送失败：${result.pushError}` : '';
+    lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${displayName(result)}：${result.message}${note}`);
+    lines.push(...buildAccountLines(result));
   }
 
   if (results.length) {
@@ -382,6 +468,15 @@ const buildNotificationContent = (results, globalMessage = '') => {
 
   lines.push(`时间：${timestamp()}`);
   return lines.join('\n');
+};
+
+// 推送给本人的正文。跳过（请假/已打卡/休息）只发一行，不附带班次明细，减少打扰。
+const buildPersonalContent = (result) => {
+  const icon = STATUS_ICONS[result.status] || 'ℹ️';
+  if (result.status === 'skipped') {
+    return [`${icon} ${displayName(result)}：${result.shortMessage || result.message}`, '', `时间：${timestamp()}`].join('\n');
+  }
+  return [`${icon} ${displayName(result)}：${result.message}`, ...buildAccountLines(result), '', `时间：${timestamp()}`].join('\n');
 };
 
 const sendSummaryNotification = async (shift, results, globalMessage = '') => {
@@ -407,6 +502,26 @@ const sendSummaryNotification = async (shift, results, globalMessage = '') => {
   }
 };
 
+// 推送给本人。返回错误信息（供管理员汇总标注），成功返回空串。
+const sendPersonalNotification = async (account, shift, result, config) => {
+  if (!account.pushKey) return '';
+  const shiftName = shift === 'morning' ? '上班' : '下班';
+  const label = displayName(result);
+  try {
+    const sent = await pushToServerChan(
+      account.pushKey,
+      `海康${shiftName}打卡结果`,
+      buildPersonalContent(result),
+      config.timeoutMs,
+    );
+    log(`[${label}] 已推送给本人（${account.pushEnvName}，密钥 ${maskKey(account.pushKey)}）${sent.duplicate ? '，内容重复已忽略' : ''}`);
+    return '';
+  } catch (error) {
+    log(`[${label}] 推送给本人失败：${error.message}`);
+    return error.message;
+  }
+};
+
 const runAccount = async ({ envName, token }, config, args, shift) => {
   if (!TOKEN_PATTERN.test(token)) throw new Error(`${envName} 不是有效的 Token`);
 
@@ -429,20 +544,33 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
   if (!ALLOW_LEAVE_DAYS && isOnLeave(todayStatus, shift)) {
     const shiftName = shift === 'morning' ? '上班' : '下班';
     accountLog(`今日${shiftName}状态为请假，无需打卡，本次跳过`);
-    return { ...context, status: 'skipped', message: '请假无需打卡，跳过' };
+    return { ...context, status: 'skipped', message: '请假无需打卡，跳过', shortMessage: '今日请假，无需打卡' };
   }
   if (isAlreadyCheckedIn(todayStatus, shift)) {
     accountLog('今日对应班次已完成打卡，本次安全跳过');
-    return { ...context, status: 'skipped', message: '已完成打卡，跳过' };
+    return { ...context, status: 'skipped', message: '已完成打卡，跳过', shortMessage: '今日已完成打卡' };
   }
   if (rule.includes('休息') && !config.allowRestDay) {
     accountLog('今日考勤规则为休息，本次安全跳过');
-    return { ...context, status: 'skipped', message: '考勤规则为休息，跳过' };
+    return { ...context, status: 'skipped', message: '考勤规则为休息，跳过', shortMessage: '今日考勤规则为休息' };
   }
   if (args.checkOnly) {
     accountLog('检查模式完成：尚未打卡，但不会提交打卡请求');
-    return { ...context, status: 'skipped', message: '检查通过，未提交打卡' };
+    return { ...context, status: 'skipped', message: '检查通过，未提交打卡', shortMessage: '检查通过，未提交打卡' };
   }
+
+  // 打卡成功后重新读一次今日状态，通知里才会显示打卡后的结果，
+  // 否则会出现「打卡成功」和「上班 → 未打卡」并列的矛盾信息。读取失败就退回打卡前的状态。
+  const refreshAfterPunch = async () => {
+    try {
+      const latest = await getTodayStatus(token, config.timeoutMs);
+      const details = getTodayDetails(latest);
+      return details.length ? details : context.details;
+    } catch (error) {
+      accountLog(`打卡后刷新状态失败，通知沿用打卡前状态：${error.message}`);
+      return context.details;
+    }
+  };
 
   let lastError = null;
   for (let attempt = 1; attempt <= config.retries; attempt += 1) {
@@ -451,7 +579,13 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
       const result = await checkIn(token, config);
       if (result?.code === 0) {
         accountLog('打卡成功');
-        return { ...context, status: 'success', message: '打卡成功', attempts: attempt };
+        return {
+          ...context,
+          details: await refreshAfterPunch(),
+          status: 'success',
+          message: '打卡成功',
+          attempts: attempt,
+        };
       }
       lastError = new Error(result?.msg || '接口返回打卡失败');
     } catch (error) {
@@ -529,11 +663,12 @@ const main = async () => {
 
   const results = [];
   for (const account of accounts) {
+    let result;
     try {
-      results.push(await runAccount(account, config, args, shift));
+      result = await runAccount(account, config, args, shift);
     } catch (error) {
       const accountName = error.accountName || account.envName;
-      results.push({
+      result = {
         accountName,
         personName: error.personName,
         status: 'failed',
@@ -541,9 +676,15 @@ const main = async () => {
         rule: error.rule,
         details: error.details,
         attempts: error.attempts,
-      });
+      };
       log(`[${accountName}] 处理失败：${error.message}`);
     }
+
+    // 每个账号处理完立刻推给本人：推送失败只记录，不影响打卡结果和其他账号。
+    if (!args.checkOnly) {
+      result.pushError = await sendPersonalNotification(account, shift, result, config);
+    }
+    results.push(result);
   }
 
   if (!args.checkOnly) await sendSummaryNotification(shift, results);
@@ -575,9 +716,13 @@ if (require.main === module) {
 
 module.exports = {
   buildNotificationContent,
+  buildPersonalContent,
   getAccount,
   getConfiguredAccounts,
   getChinaHolidayStatus,
+  getServerChanUrl,
   isOnLeave,
+  pushEnvNameFor,
+  pushToServerChan,
   sendSummaryNotification,
 };

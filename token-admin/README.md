@@ -6,9 +6,11 @@
 
 - 提交前调用海康接口验证 Token，验证失败不会写入青龙。
 - 自动依次创建 `HIK_DAKA_TOKEN`、`HIK_DAKA_TOKEN_2`、`HIK_DAKA_TOKEN_3`……
+- 可同时填写本人的 Server酱 SendKey，与 Token **成对**写入（`HIK_DAKA_TOKEN_2` 配 `HIK_DAKA_PUSH_KEY_2`）；留空则只写 Token。
+- 账号已存在时再提交一次并填上 SendKey，会补配或更换该账号的 SendKey，不需要先删掉 Token 重建。
 - 自动识别重复 Token，不会重复保存。
 - 启动时自动将 `ql_token_admin.cjs` 安装到青龙容器。
-- Token 不写入 URL、浏览器存储或服务日志。
+- Token 和 SendKey 都不写入 URL、浏览器存储或服务日志。
 - 使用 CSRF 校验、安全响应头、请求大小限制和基础频率限制。
 
 ## 前置条件

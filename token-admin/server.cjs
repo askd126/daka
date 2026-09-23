@@ -196,7 +196,13 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { success: false, error: 'Token 格式不正确，应为 36 位 UUID' });
         return;
       }
-      const result = await enqueue(() => runHelper({ action: 'submit', token }));
+      // 精细的 SendKey 格式校验在容器内的 helper 里，这里只挡明显无效的输入。
+      const sendKey = String(body.sendKey || '').trim();
+      if (sendKey.length > 64 || /\s/.test(sendKey)) {
+        sendJson(res, 400, { success: false, error: 'SendKey 格式不正确' });
+        return;
+      }
+      const result = await enqueue(() => runHelper({ action: 'submit', token, sendKey }));
       sendJson(res, 200, result);
       return;
     }

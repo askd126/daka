@@ -33,6 +33,7 @@
 | --- | --- | --- |
 | `HIK_DAKA_TOKEN` | 是 | 第一个账号的 `www_token` |
 | `HIK_DAKA_TOKEN_2`、`HIK_DAKA_TOKEN_3`… | 否 | 其他账号，编号递增 |
+| `HIK_DAKA_PUSH_KEY`、`HIK_DAKA_PUSH_KEY_2`… | 否 | 各人的 Server酱 SendKey，编号需与 Token 一一对应；配了以后本人会额外收到一条只含自己数据的推送 |
 | `HIK_DAKA_LOCATION` | 否 | 默认：`江苏省南京市浦口区江浦街道南京农业大学滨江校区农学院南京农业大学(滨江校区)` |
 | `HIK_DAKA_LONGITUDE` | 否 | 默认：`118.636838`；范围 `-180` 到 `180` |
 | `HIK_DAKA_LATITUDE` | 否 | 默认：`32.011898`；范围 `-90` 到 `90` |
@@ -56,6 +57,7 @@ Token 获取入口：<https://www.hikiot.com/portal/login>。登录后按 `F12`�
 ## 行为说明
 
 - 支持多个账号顺序执行，并将所有账号结果合并成一条青龙系统通知。
+- 配了 `HIK_DAKA_PUSH_KEY_N` 的账号本人会额外收到一条只含自己数据的推送；该推送直连 Server酱，不经过面板通知设置，`SKIP_PUSH_TITLE` 对它无效。
 - 命中国务院公布的官方节假日时跳过；普通周末仍读取海康当天考勤规则。
 - 已完成对应班次时安全跳过，避免重复提交。
 - 今日状态为请假时跳过，不会提交打卡。

@@ -21,6 +21,7 @@
           <div>
             <p class="label">当前状态</p>
             <h2 id="form-title"><span id="account-count">—</span> 个账号已配置</h2>
+            <p class="field-meta" id="push-key-summary"><span id="push-key-count">—</span> 人已配 Server酱 推送</p>
           </div>
           <span id="panel-state" class="pill pending">正在连接青龙</span>
         </div>
@@ -45,6 +46,25 @@
           <div class="field-meta">
             <span id="token-help">36 位 UUID，仅发送到这台管理服务</span>
             <span id="token-length">0 / 36</span>
+          </div>
+
+          <label for="send-key">Server酱 SendKey（选填）</label>
+          <div class="token-field">
+            <input
+              id="send-key"
+              name="sendKey"
+              type="password"
+              inputmode="text"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="64"
+              placeholder="SCTxxxxxxxx 或 sctp<N>txxxxxxxx"
+              aria-describedby="send-key-help"
+            />
+            <button id="toggle-send-key" class="ghost" type="button" aria-label="显示 SendKey">显示</button>
+          </div>
+          <div class="field-meta">
+            <span id="send-key-help">填写后本人会收到属于自己的打卡结果；留空则只发管理员汇总</span>
           </div>
 
           <button id="submit-button" class="primary" type="submit">
@@ -79,11 +99,30 @@
         </ol>
 
         <p class="expiry-note">Token 通常有效 30 天；失效后按相同步骤重新获取并提交。</p>
+
+        <div class="guide-head">
+          <div>
+            <p class="label">SendKey 获取指南</p>
+            <h2>从 Server酱 复制 SendKey</h2>
+          </div>
+          <a
+            class="login-link"
+            href="https://sct.ftqq.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >打开 Server酱 <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <ol class="steps">
+          <li><span>1</span><p>用微信扫码登录 Server酱，进入「SendKey」页面。</p></li>
+          <li><span>2</span><p>复制 <code>SendKey</code>（形如 <code>SCT</code> 或 <code>sctp&lt;数字&gt;t</code> 开头），粘贴到上方「Server酱 SendKey」输入框。</p></li>
+          <li><span>3</span><p>不填也可以提交，只是这个账号的结果只出现在管理员汇总里，不会单独推给本人。</p></li>
+        </ol>
       </section>
 
       <section class="privacy-note">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6.2c0 4.7 3.2 9.1 7.5 10.8 4.3-1.7 7.5-6.1 7.5-10.8V5L12 2Zm0 2.2 5.5 2.2v4.8c0 3.6-2.2 7.1-5.5 8.6-3.3-1.5-5.5-5-5.5-8.6V6.4L12 4.2Zm-1.1 4v3H8.5v2h2.4v2.5h2.2v-2.5h2.4v-2h-2.4v-3h-2.2Z"/></svg>
-        <p><strong>局域网管理页面</strong><br />服务监听所有本机网卡。Token 不写入浏览器存储、URL 或应用日志，请勿映射到公网。</p>
+        <p><strong>局域网管理页面</strong><br />服务监听所有本机网卡。Token 和 SendKey 都不写入浏览器存储、URL 或应用日志，请勿映射到公网。</p>
       </section>
     </main>
     <script src="/app.js" defer></script>
