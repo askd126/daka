@@ -8,8 +8,6 @@ const sendKeyInput = document.querySelector('#send-key');
 const toggleSendKey = document.querySelector('#toggle-send-key');
 const submitButton = document.querySelector('#submit-button');
 const result = document.querySelector('#result');
-const accountCount = document.querySelector('#account-count');
-const pushKeyCount = document.querySelector('#push-key-count');
 const panelState = document.querySelector('#panel-state');
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
@@ -37,13 +35,9 @@ const refreshStatus = async () => {
     const response = await fetch('/api/status', { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.error || '连接失败');
-    accountCount.textContent = data.count;
-    pushKeyCount.textContent = data.pushKeyCount ?? 0;
     panelState.textContent = '青龙已连接';
     panelState.className = 'pill online';
   } catch {
-    accountCount.textContent = '—';
-    pushKeyCount.textContent = '—';
     panelState.textContent = '青龙连接失败';
     panelState.className = 'pill offline';
   }
@@ -110,8 +104,6 @@ form.addEventListener('submit', async (event) => {
     toggleVisibility.textContent = '显示';
     toggleSendKey.textContent = '显示';
     tokenLength.textContent = '0 / 36';
-    accountCount.textContent = data.count;
-    pushKeyCount.textContent = data.pushKeyCount ?? pushKeyCount.textContent;
   } catch (error) {
     showResult(error.message || '提交失败，请稍后重试。', 'error');
   } finally {
