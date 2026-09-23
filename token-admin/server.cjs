@@ -17,6 +17,7 @@ const LOCAL_HELPER_PATH = path.join(__dirname, 'ql_token_admin.cjs');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CSRF_TOKEN = crypto.randomBytes(32).toString('hex');
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SEND_KEY_PATTERN = /^(?:sctp\d+t[0-9a-z]+|sct[0-9a-z]+)$/i;
 
 let queue = Promise.resolve();
 const rateWindow = [];
@@ -196,10 +197,10 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { success: false, error: 'Token 格式不正确，应为 36 位 UUID' });
         return;
       }
-      // 精细的 SendKey 格式校验在容器内的 helper 里，这里只挡明显无效的输入。
+      // 与容器内 helper 用同一套规则预校验，用户输入错误按 400 返回，而不是当成服务器异常。
       const sendKey = String(body.sendKey || '').trim();
-      if (sendKey.length > 64 || /\s/.test(sendKey)) {
-        sendJson(res, 400, { success: false, error: 'SendKey 格式不正确' });
+      if (sendKey && (sendKey.length > 64 || !SEND_KEY_PATTERN.test(sendKey))) {
+        sendJson(res, 400, { success: false, error: 'SendKey 格式不正确，应为 SCT 开头或 sctp<N>t 开头的 Server酱密钥' });
         return;
       }
       const result = await enqueue(() => runHelper({ action: 'submit', token, sendKey }));
