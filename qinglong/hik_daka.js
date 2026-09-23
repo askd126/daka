@@ -349,13 +349,21 @@ const STATUS_ICONS = {
   failed: '❌',
 };
 
+// 优先显示考勤系统里的真实姓名，昵称放在括号里便于和环境变量备注对照。
+const displayName = (result) => {
+  const personName = String(result.personName || '').trim();
+  const accountName = String(result.accountName || '').trim();
+  if (personName && accountName && personName !== accountName) return `${personName}（${accountName}）`;
+  return personName || accountName || '未知账号';
+};
+
 // 标题保持固定：sendNotify.js 的 SKIP_PUSH_TITLE 按标题精确匹配，改动会导致跳过规则失效。
 const buildNotificationContent = (results, globalMessage = '') => {
   const lines = [];
   if (globalMessage) lines.push(globalMessage);
 
   for (const result of results) {
-    lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${result.accountName}：${result.message}`);
+    lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${displayName(result)}：${result.message}`);
     if (result.rule) lines.push(`· 班次规则 ${result.rule}`);
     for (const item of (result.details || []).slice(0, 4)) {
       lines.push(`· ${formatShiftLine(item)}`);
@@ -411,7 +419,8 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
     withRetry(() => getTodayStatus(token, config.timeoutMs), `[${accountName}] 获取今日状态`),
   ]);
 
-  const context = { accountName, rule, details: getTodayDetails(todayStatus) };
+  const personName = String(todayStatus?.personName || '').trim();
+  const context = { accountName, personName, rule, details: getTodayDetails(todayStatus) };
 
   if (!config.allowLeave && isOnLeave(todayStatus, shift)) {
     const shiftName = shift === 'morning' ? '上班' : '下班';
@@ -456,6 +465,7 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
   // 把账号和班次信息挂到错误上，失败时汇总通知里也能看到是谁、哪个班次、考勤状态如何。
   const failure = lastError || new Error('打卡失败');
   failure.accountName = accountName;
+  failure.personName = personName;
   failure.rule = rule;
   failure.details = context.details;
   failure.attempts = config.retries;
@@ -522,6 +532,7 @@ const main = async () => {
       const accountName = error.accountName || account.envName;
       results.push({
         accountName,
+        personName: error.personName,
         status: 'failed',
         message: error.message,
         rule: error.rule,
