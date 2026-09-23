@@ -27,18 +27,18 @@
 
 ## 二、配置环境变量
 
-至少添加以下变量并保持启用：
+只需添加 Token 并保持启用。仓库已内置默认打卡地点；其他变量仅在需要覆盖默认值时添加：
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
 | `HIK_DAKA_TOKEN` | 是 | 第一个账号的 `www_token` |
 | `HIK_DAKA_TOKEN_2`、`HIK_DAKA_TOKEN_3`… | 否 | 其他账号，编号递增 |
-| `HIK_DAKA_LOCATION` | 是 | 打卡位置描述 |
-| `HIK_DAKA_LONGITUDE` | 是 | 经度，范围 `-180` 到 `180` |
-| `HIK_DAKA_LATITUDE` | 是 | 纬度，范围 `-90` 到 `90` |
-| `HIK_DAKA_ADDRESS` | 否 | 详细地址；不填时使用 `HIK_DAKA_LOCATION` |
-| `HIK_DAKA_WIFI` | 否 | WiFi 名称 |
-| `HIK_DAKA_WIFI_MAC` | 否 | WiFi MAC 地址 |
+| `HIK_DAKA_LOCATION` | 否 | 默认：`江苏省南京市浦口区江浦街道南京农业大学滨江校区农学院南京农业大学(滨江校区)` |
+| `HIK_DAKA_LONGITUDE` | 否 | 默认：`118.636838`；范围 `-180` 到 `180` |
+| `HIK_DAKA_LATITUDE` | 否 | 默认：`32.011898`；范围 `-90` 到 `90` |
+| `HIK_DAKA_ADDRESS` | 否 | 默认与上述地点描述相同 |
+| `HIK_DAKA_WIFI` | 否 | 默认：`NJAU` |
+| `HIK_DAKA_WIFI_MAC` | 否 | 默认：`58:ae:a8:32:59:90` |
 | `HIK_DAKA_RANDOM_RADIUS` | 否 | 定位随机偏移半径，默认 `50` 米 |
 | `HIK_DAKA_RETRIES` | 否 | 失败重试次数，默认 `3` |
 | `HIK_DAKA_ALLOW_REST` | 否 | 默认 `false`，考勤规则为休息时跳过 |
@@ -54,5 +54,5 @@ Token 获取入口：<https://www.hikiot.com/portal/login>。登录后按 `F12`�
 - 支持多个账号顺序执行，并将所有账号结果合并成一条青龙系统通知。
 - 命中国务院公布的官方节假日时跳过；普通周末仍读取海康当天考勤规则。
 - 已完成对应班次时安全跳过，避免重复提交。
-- 节假日数据无法确认或关键定位参数缺失时安全失败，不提交打卡。
-- Token 与定位均保存在各自青龙环境变量中，仓库不包含任何账号凭据或个人位置。
+- 节假日数据无法确认时安全失败，不提交打卡。
+- 仓库不包含任何账号 Token；默认定位已公开写入脚本，可通过对应环境变量覆盖。

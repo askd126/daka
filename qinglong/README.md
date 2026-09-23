@@ -5,6 +5,7 @@
 ## 安全设计
 
 - Token 只从青龙环境变量 `HIK_DAKA_TOKEN`、`HIK_DAKA_TOKEN_2` 等读取，不写入代码或日志。
+- 脚本内置公开的默认打卡地点、经纬度和 WiFi；需要用于其他地点时可通过环境变量覆盖。
 - 支持多账号依次执行；一个账号失败不会阻断其他账号，日志显示完整账号姓名。
 - 正式打卡结束后只发送一条汇总通知，列出全部账号的成功、跳过或失败结果；直接使用青龙现有的 `sendNotify.js` 和 Server酱配置。
 - `--check` 检查模式不会发送通知，避免测试消息干扰。
@@ -17,18 +18,18 @@
 
 ## 环境变量
 
-在青龙的“环境变量”页面至少新增：
+在青龙的“环境变量”页面只需新增 Token；其余变量仅用于覆盖仓库默认值：
 
 | 名称 | 必填 | 默认值或说明 |
 | --- | --- | --- |
 | `HIK_DAKA_TOKEN` | 是 | 第一个人的海康网页 Token；设置后请启用该变量 |
 | `HIK_DAKA_TOKEN_2`、`HIK_DAKA_TOKEN_3`… | 否 | 其他人的 Token，按编号继续添加；重复 Token 会自动去重 |
-| `HIK_DAKA_LOCATION` | 是 | 打卡位置描述 |
-| `HIK_DAKA_ADDRESS` | 否 | 打卡地址 |
-| `HIK_DAKA_LONGITUDE` | 是 | 打卡经度，范围 `-180` 到 `180` |
-| `HIK_DAKA_LATITUDE` | 是 | 打卡纬度，范围 `-90` 到 `90` |
-| `HIK_DAKA_WIFI` | 否 | WiFi 名称 |
-| `HIK_DAKA_WIFI_MAC` | 否 | WiFi MAC 地址 |
+| `HIK_DAKA_LOCATION` | 否 | 默认：`江苏省南京市浦口区江浦街道南京农业大学滨江校区农学院南京农业大学(滨江校区)` |
+| `HIK_DAKA_ADDRESS` | 否 | 默认与上述地点描述相同 |
+| `HIK_DAKA_LONGITUDE` | 否 | 默认：`118.636838`；范围 `-180` 到 `180` |
+| `HIK_DAKA_LATITUDE` | 否 | 默认：`32.011898`；范围 `-90` 到 `90` |
+| `HIK_DAKA_WIFI` | 否 | 默认：`NJAU` |
+| `HIK_DAKA_WIFI_MAC` | 否 | 默认：`58:ae:a8:32:59:90` |
 | `HIK_DAKA_RANDOM_RADIUS` | 否 | 随机偏移半径，默认 `50` 米 |
 | `HIK_DAKA_RETRIES` | 否 | 失败重试次数，默认 `3` |
 | `HIK_DAKA_ALLOW_REST` | 否 | 默认 `false`，休息日不打卡 |
@@ -70,4 +71,4 @@
 
 ## 订阅部署
 
-需要分享给其他青龙时，使用 [SUBSCRIPTION.md](./SUBSCRIPTION.md) 中的订阅配置。订阅只同步通用脚本，不包含 Token 或定位信息。
+需要分享给其他青龙时，使用 [SUBSCRIPTION.md](./SUBSCRIPTION.md) 中的订阅配置。订阅不包含 Token，但会同步上述公开默认定位。

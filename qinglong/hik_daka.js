@@ -10,6 +10,12 @@ const API_BASE = 'https://api.hikiot.com';
 const SIGN_SALT = 'WE1mfER7artAoJEwXKaCjw==';
 
 const DEFAULTS = {
+  location: '江苏省南京市浦口区江浦街道南京农业大学滨江校区农学院南京农业大学(滨江校区)',
+  address: '江苏省南京市浦口区江浦街道南京农业大学滨江校区农学院南京农业大学(滨江校区)',
+  longitude: 118.636838,
+  latitude: 32.011898,
+  wifiName: 'NJAU',
+  wifiMac: '58:ae:a8:32:59:90',
   randomRadius: 50,
   retries: 3,
   retryDelayMs: 5000,
@@ -50,21 +56,6 @@ const readBoolean = (name, fallback = false) => {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return fallback;
   return ['1', 'true', 'yes', 'on'].includes(String(raw).toLowerCase());
-};
-
-const readRequiredString = (name) => {
-  const value = String(process.env[name] || '').trim();
-  if (!value) throw new Error(`请设置青龙环境变量 ${name}`);
-  return value;
-};
-
-const readRequiredNumber = (name, { min, max }) => {
-  const raw = readRequiredString(name);
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(`环境变量 ${name} 的值无效`);
-  }
-  return value;
 };
 
 const parseArgs = () => {
@@ -421,12 +412,12 @@ const main = async () => {
   if (!['morning', 'evening'].includes(shift)) throw new Error('--shift 只能是 morning 或 evening');
 
   const config = {
-    location: readRequiredString('HIK_DAKA_LOCATION'),
-    address: process.env.HIK_DAKA_ADDRESS || readRequiredString('HIK_DAKA_LOCATION'),
-    longitude: readRequiredNumber('HIK_DAKA_LONGITUDE', { min: -180, max: 180 }),
-    latitude: readRequiredNumber('HIK_DAKA_LATITUDE', { min: -90, max: 90 }),
-    wifiName: process.env.HIK_DAKA_WIFI || '',
-    wifiMac: process.env.HIK_DAKA_WIFI_MAC || '',
+    location: process.env.HIK_DAKA_LOCATION || DEFAULTS.location,
+    address: process.env.HIK_DAKA_ADDRESS || process.env.HIK_DAKA_LOCATION || DEFAULTS.address,
+    longitude: readNumber('HIK_DAKA_LONGITUDE', DEFAULTS.longitude, { min: -180, max: 180 }),
+    latitude: readNumber('HIK_DAKA_LATITUDE', DEFAULTS.latitude, { min: -90, max: 90 }),
+    wifiName: process.env.HIK_DAKA_WIFI || DEFAULTS.wifiName,
+    wifiMac: process.env.HIK_DAKA_WIFI_MAC || DEFAULTS.wifiMac,
     randomRadius: readNumber('HIK_DAKA_RANDOM_RADIUS', DEFAULTS.randomRadius, { min: 0, max: 1000 }),
     retries: readNumber('HIK_DAKA_RETRIES', DEFAULTS.retries, { min: 1, max: 5, integer: true }),
     retryDelayMs: readNumber('HIK_DAKA_RETRY_DELAY_MS', DEFAULTS.retryDelayMs, { min: 1000, max: 60000, integer: true }),
