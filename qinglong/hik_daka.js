@@ -180,28 +180,41 @@ const fetchHolidayYear = async (year) => {
   throw lastError || new Error(`无法获取 ${year} 年节假日数据`);
 };
 
-const getChinaHolidayStatus = async (date = new Date()) => {
-  const dayOfWeek = date.getDay();
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return { isOffDay: false, weekendExcluded: true, name: '' };
-  }
+const CHINA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const chinaDateKey = (date) => new Date(date.getTime() + CHINA_OFFSET_MS).toISOString().slice(0, 10);
 
-  const year = date.getFullYear();
-  const dateKey = [
-    year,
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-');
-  // A December date can be affected by the following year's State Council notice.
-  const years = date.getMonth() === 11 ? [year, year + 1] : [year];
+const holidayDatesToCheck = (date) => {
+  const chinaNow = new Date(date.getTime() + CHINA_OFFSET_MS);
+  const dayOfWeek = chinaNow.getUTCDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const chinaDay = Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate());
+  // 周六、周日按同一个周末处理；周五或周一放假也算与周末相连。
+  const saturday = chinaDay - (dayOfWeek === 0 ? 1 : 0) * 86400000;
+  const datesToCheck = isWeekend
+    ? [-1, 0, 1, 2].map((offset) => new Date(saturday + offset * 86400000))
+    : [new Date(chinaDay)];
+  return { isWeekend, datesToCheck };
+};
+
+const classifyHolidayDate = (date, days) => {
+  const { isWeekend, datesToCheck } = holidayDatesToCheck(date);
+  const entries = new Map(days.map((item) => [item.date, item]));
+  const offDay = datesToCheck
+    .map((day) => entries.get(day.toISOString().slice(0, 10)))
+    .find((entry) => entry?.isOffDay === true);
+  // 日期散列让同一天上、下班及所有账号保持同一决定；长期约 80% 的普通周末会打卡。
+  const weekendPunch = isWeekend && !offDay
+    ? crypto.createHash('sha256').update(chinaDateKey(date)).digest().readUInt32BE(0) / 0x100000000 < 0.8
+    : false;
+  return { isOffDay: Boolean(offDay), isWeekend, weekendPunch, name: offDay?.name || '' };
+};
+
+const getChinaHolidayStatus = async (date = new Date()) => {
+  const { datesToCheck } = holidayDatesToCheck(date);
+  const years = [...new Set(datesToCheck.map((day) => day.getUTCFullYear()))];
   const datasets = [];
   for (const dataYear of years) datasets.push(await fetchHolidayYear(dataYear));
-  const entry = datasets.flatMap((item) => item.days).find((item) => item.date === dateKey);
-  return {
-    isOffDay: entry?.isOffDay === true,
-    weekendExcluded: false,
-    name: entry?.name || '',
-  };
+  return classifyHolidayDate(date, datasets.flatMap((item) => item.days));
 };
 
 const addRandomOffset = (latitude, longitude, radiusMeters) => {
@@ -639,18 +652,21 @@ const main = async () => {
 
   log(`任务开始：${shift === 'morning' ? '上班' : '下班'}检查，共 ${accounts.length} 个账号`);
   const holiday = await getChinaHolidayStatus();
-  if (holiday.weekendExcluded) {
-    log('今天是普通周末，按你的设置不作为节假日跳过');
-  } else if (holiday.isOffDay) {
-    log(`今天是官方节假日${holiday.name ? `（${holiday.name}）` : ''}，本次安全跳过`);
+  if (holiday.isOffDay || (holiday.isWeekend && !holiday.weekendPunch)) {
+    const reason = holiday.isOffDay
+      ? `${holiday.isWeekend ? '与官方节假日相连的周末' : '官方节假日'}${holiday.name ? `（${holiday.name}）` : ''}`
+      : '普通周末，今日未命中 80% 打卡日期';
+    log(`今天是${reason}，本次安全跳过`);
     if (!args.checkOnly) {
       await sendSummaryNotification(
         shift,
         [],
-        `⏭️ 官方节假日${holiday.name ? `（${holiday.name}）` : ''}，全部 ${accounts.length} 个账号跳过`,
+        `⏭️ ${reason}，全部 ${accounts.length} 个账号跳过`,
       );
     }
     return;
+  } else if (holiday.isWeekend) {
+    log('今天是普通周末，命中 80% 打卡日期，继续检查考勤状态');
   } else {
     log('官方节假日检查通过');
   }
@@ -717,6 +733,7 @@ if (require.main === module) {
 module.exports = {
   buildNotificationContent,
   buildPersonalContent,
+  classifyHolidayDate,
   getAccount,
   getConfiguredAccounts,
   getChinaHolidayStatus,
