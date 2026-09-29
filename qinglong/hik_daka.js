@@ -3,7 +3,6 @@
 'use strict';
 
 const crypto = require('crypto');
-const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
@@ -464,7 +463,7 @@ const buildAccountLines = (result) => {
   return lines;
 };
 
-// 标题保持固定：sendNotify.js 的 SKIP_PUSH_TITLE 按标题精确匹配，改动会导致跳过规则失效。
+// 汇总标题保持固定，便于在青龙通知记录中识别。
 const buildNotificationContent = (results, globalMessage = '') => {
   const lines = [];
   if (globalMessage) lines.push(globalMessage);
@@ -497,38 +496,25 @@ const sendSummaryNotification = async (shift, results, globalMessage = '') => {
   const shiftName = shift === 'morning' ? '上班' : '下班';
   const title = `海康${shiftName}打卡结果`;
   const content = buildNotificationContent(results, globalMessage);
+  let ownedClient;
 
   try {
-    if (globalThis.QLAPI && typeof globalThis.QLAPI.systemNotify === 'function') {
-      const response = await globalThis.QLAPI.systemNotify({ title, content });
-      if (response?.code && response.code !== 200) {
-        throw new Error(response.message || `青龙通知接口返回 ${response.code}`);
-      }
-    } else {
-      // 青龙订阅会把本脚本放进仓库子目录，通知模块仍在 scripts 根目录。
-      let notifyDir = __dirname;
-      let notifyPath;
-      while (true) {
-        const candidate = path.join(notifyDir, 'sendNotify.js');
-        if (fs.existsSync(candidate)) {
-          notifyPath = candidate;
-          break;
-        }
-        const parent = path.dirname(notifyDir);
-        if (parent === notifyDir) break;
-        notifyDir = parent;
-      }
-      if (!notifyPath && fs.existsSync('/ql/data/deps/sendNotify.js')) {
-        notifyPath = '/ql/data/deps/sendNotify.js';
-      }
-      if (!notifyPath) throw new Error('未找到青龙通知模块 sendNotify.js');
-      const { sendNotify } = require(notifyPath);
-      if (typeof sendNotify !== 'function') throw new Error('sendNotify.js 未导出 sendNotify');
-      await sendNotify(title, content);
+    let qlApi = globalThis.QLAPI;
+    if (typeof qlApi?.systemNotify !== 'function') {
+      process.env.QL_DIR ||= '/ql';
+      ownedClient = require(path.join(process.env.QL_DIR, 'shell/preload/client.js'));
+      qlApi = ownedClient;
+    }
+    if (typeof qlApi.systemNotify !== 'function') throw new Error('青龙客户端不支持 systemNotify');
+    const response = await qlApi.systemNotify({ title, content });
+    if (Number(response?.code) !== 200) {
+      throw new Error(response?.message || `青龙通知接口返回 ${response?.code ?? '空响应'}`);
     }
     log('所有账号的汇总通知已发送');
   } catch (error) {
     log(`汇总通知发送失败：${error.message}`);
+  } finally {
+    ownedClient?.close?.();
   }
 };
 
