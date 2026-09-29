@@ -3,6 +3,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
@@ -504,7 +505,23 @@ const sendSummaryNotification = async (shift, results, globalMessage = '') => {
         throw new Error(response.message || `青龙通知接口返回 ${response.code}`);
       }
     } else {
-      const notifyPath = path.join(__dirname, 'sendNotify.js');
+      // 青龙订阅会把本脚本放进仓库子目录，通知模块仍在 scripts 根目录。
+      let notifyDir = __dirname;
+      let notifyPath;
+      while (true) {
+        const candidate = path.join(notifyDir, 'sendNotify.js');
+        if (fs.existsSync(candidate)) {
+          notifyPath = candidate;
+          break;
+        }
+        const parent = path.dirname(notifyDir);
+        if (parent === notifyDir) break;
+        notifyDir = parent;
+      }
+      if (!notifyPath && fs.existsSync('/ql/data/deps/sendNotify.js')) {
+        notifyPath = '/ql/data/deps/sendNotify.js';
+      }
+      if (!notifyPath) throw new Error('未找到青龙通知模块 sendNotify.js');
       const { sendNotify } = require(notifyPath);
       if (typeof sendNotify !== 'function') throw new Error('sendNotify.js 未导出 sendNotify');
       await sendNotify(title, content);
