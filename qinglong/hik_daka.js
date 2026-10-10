@@ -3,6 +3,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
@@ -27,7 +28,27 @@ const DEFAULTS = {
 const ALLOW_LEAVE_DAYS = false;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const timestamp = () => new Date().toLocaleString('zh-CN', { hour12: false });
+
+// 所有「今天」的判断固定用北京时间（UTC+8），不依赖运行环境的本地时区：
+// 青龙容器的时区不一定是 Asia/Shanghai，用本地时间会在境外机器上判错日期。
+const CHINA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const getChinaNow = (date = new Date()) => new Date(date.getTime() + CHINA_OFFSET_MS);
+const chinaHour = (date = new Date()) => getChinaNow(date).getUTCHours();
+const chinaDateKey = (date = new Date()) => {
+  const d = getChinaNow(date);
+  return [
+    d.getUTCFullYear(),
+    String(d.getUTCMonth() + 1).padStart(2, '0'),
+    String(d.getUTCDate()).padStart(2, '0'),
+  ].join('-');
+};
+
+// 部分 Node 构建缺 zh-CN locale 数据，toLocaleString 会退回英文格式，手动拼接更稳。
+const timestamp = () => {
+  const d = getChinaNow();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+};
 const log = (message) => console.log(`[${timestamp()}] ${message}`);
 
 const withRetry = async (operation, label, attempts = 2, delayMs = 2000) => {
@@ -114,7 +135,9 @@ const requestJson = (method, path, token, body, extraHeaders = {}, timeoutMs = D
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`HTTP ${res.statusCode}`));
+          // 接口的业务报错（如「不在打卡时间」）通常在响应体里，丢了没法排障。
+          const snippet = text.trim().slice(0, 200);
+          reject(new Error(`HTTP ${res.statusCode}${snippet ? `：${snippet}` : ''}`));
           return;
         }
         try {
@@ -146,7 +169,8 @@ const requestPublicJson = (urlString, timeoutMs = 12000) =>
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`节假日数据 HTTP ${res.statusCode}`));
+          const snippet = text.trim().slice(0, 200);
+          reject(new Error(`节假日数据 HTTP ${res.statusCode}${snippet ? `：${snippet}` : ''}`));
           return;
         }
         try {
@@ -160,10 +184,34 @@ const requestPublicJson = (urlString, timeoutMs = 12000) =>
     req.on('error', reject);
   });
 
+// 节假日数据缓存：raw.githubusercontent 和 jsdelivr 在大陆的可达性不稳定，
+// 全部在线源失败时回退缓存，避免网络抖动直接变成漏打卡。缓存写入失败不影响打卡。
+const HOLIDAY_CACHE_DIR = process.env.HIK_DAKA_CACHE_DIR || path.join(__dirname, '.holiday-cache');
+
+const readHolidayCache = (year) => {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(HOLIDAY_CACHE_DIR, `${year}.json`), 'utf8'));
+    if (Number(data?.year) === year && Array.isArray(data?.days)) return data;
+  } catch {
+    // 缓存不存在或损坏时按无缓存处理
+  }
+  return null;
+};
+
+const writeHolidayCache = (year, data) => {
+  try {
+    fs.mkdirSync(HOLIDAY_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(HOLIDAY_CACHE_DIR, `${year}.json`), JSON.stringify(data));
+  } catch (error) {
+    log(`写入节假日缓存失败（不影响打卡）：${error.message}`);
+  }
+};
+
 const fetchHolidayYear = async (year) => {
   const sources = [
     `https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/${year}.json`,
     `https://cdn.jsdelivr.net/gh/NateScarlet/holiday-cn@master/${year}.json`,
+    `https://fastly.jsdelivr.net/gh/NateScarlet/holiday-cn@master/${year}.json`,
   ];
   let lastError;
   for (const source of sources) {
@@ -172,19 +220,23 @@ const fetchHolidayYear = async (year) => {
       if (Number(data?.year) !== year || !Array.isArray(data?.days)) {
         throw new Error(`${year} 年节假日数据格式不正确`);
       }
+      writeHolidayCache(year, data);
       return data;
     } catch (error) {
       lastError = error;
     }
   }
+  // 节假日数据发布后不会变，用旧缓存判定今天比直接报错不打卡更安全。
+  const cached = readHolidayCache(year);
+  if (cached) {
+    log(`节假日在线查询失败（${lastError?.message || '未知错误'}），使用本地缓存 ${year}.json`);
+    return cached;
+  }
   throw lastError || new Error(`无法获取 ${year} 年节假日数据`);
 };
 
-const CHINA_OFFSET_MS = 8 * 60 * 60 * 1000;
-const chinaDateKey = (date) => new Date(date.getTime() + CHINA_OFFSET_MS).toISOString().slice(0, 10);
-
 const holidayDatesToCheck = (date) => {
-  const chinaNow = new Date(date.getTime() + CHINA_OFFSET_MS);
+  const chinaNow = getChinaNow(date);
   const dayOfWeek = chinaNow.getUTCDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
   const chinaDay = Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate());
@@ -255,11 +307,28 @@ const isAlreadyCheckedIn = (status, shift) => collectDetails(status).some((item)
 // 请假等各种“假”都不需要打卡。海康用 statusDesc 文本表达考勤结论，具体文案随企业配置变化。
 const LEAVE_KEYWORDS = ['请假', '休假', '调休', '年假', '事假', '病假', '婚假', '产假', '陪产假', '丧假', '公假'];
 
+// 日期字段能按「年-月-日」解析且与今天不符的记录不是今天的；解析不了时保持原行为，避免误杀今日记录。
+const isSameChinaDay = (value) => {
+  const matched = String(value ?? '').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!matched) return true;
+  const [year, month, day] = chinaDateKey().split('-');
+  return (
+    Number(matched[1]) === Number(year) &&
+    Number(matched[2]) === Number(month) &&
+    Number(matched[3]) === Number(day)
+  );
+};
+
+const detailDate = (item) => item?.date || item?.day || item?.clockDate || item?.workDate;
+
 // 请假只认今日记录：others 可能混入其它日期的记录，误判会导致漏打卡。
 const getTodayDetails = (status) => {
   const currentDetails = status?.current?.details || [];
   if (currentDetails.length) return currentDetails;
-  return (status?.others || []).flatMap((item) => item?.details || []);
+  return (status?.others || [])
+    .filter((item) => isSameChinaDay(detailDate(item)))
+    .flatMap((item) => item?.details || [])
+    .filter((item) => isSameChinaDay(detailDate(item)));
 };
 
 const isOnLeave = (status, shift) => getTodayDetails(status).some((item) => {
@@ -407,7 +476,8 @@ const requestForm = (urlString, fields, timeoutMs) => new Promise((resolve, reje
     res.on('end', () => {
       const text = Buffer.concat(chunks).toString('utf8');
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        reject(new Error(`Server酱 HTTP ${res.statusCode}`));
+        const snippet = text.trim().slice(0, 200);
+        reject(new Error(`Server酱 HTTP ${res.statusCode}${snippet ? `：${snippet}` : ''}`));
         return;
       }
       try {
@@ -616,6 +686,24 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
     }
   }
 
+  // 重试耗尽后复核一次：请求可能已被服务端受理但响应丢失，复核发现已打卡就按成功收尾，
+  // 避免把成功当成失败，也避免随后手动补卡造成重复提交。
+  try {
+    const latest = await getTodayStatus(token, config.timeoutMs);
+    if (isAlreadyCheckedIn(latest, shift)) {
+      accountLog('复核发现对应班次已完成打卡，按打卡成功处理');
+      return {
+        ...context,
+        details: getTodayDetails(latest),
+        status: 'success',
+        message: '打卡成功',
+        attempts: config.retries,
+      };
+    }
+  } catch (error) {
+    accountLog(`失败后复核失败：${error.message}`);
+  }
+
   // 把账号和班次信息挂到错误上，失败时汇总通知里也能看到是谁、哪个班次、考勤状态如何。
   const failure = lastError || new Error('打卡失败');
   failure.accountName = accountName;
@@ -635,7 +723,7 @@ const main = async () => {
     throw new Error('--delay 必须是 0 到 7200 之间的秒数');
   }
 
-  const currentHour = new Date().getHours();
+  const currentHour = chinaHour();
   const shift = args.shift || (currentHour < 12 ? 'morning' : 'evening');
   if (!['morning', 'evening'].includes(shift)) throw new Error('--shift 只能是 morning 或 evening');
 
@@ -722,7 +810,7 @@ if (require.main === module) {
     console.error(`[${timestamp()}] 任务失败：${error.message}`);
     if (!process.argv.includes('--check')) {
       const shiftArg = process.argv.find((arg) => arg.startsWith('--shift='));
-      const shift = shiftArg?.split('=', 2)[1] || (new Date().getHours() < 12 ? 'morning' : 'evening');
+      const shift = shiftArg?.split('=', 2)[1] || (chinaHour() < 12 ? 'morning' : 'evening');
       await sendSummaryNotification(shift, [{
         accountName: '任务',
         status: 'failed',
