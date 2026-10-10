@@ -56,4 +56,5 @@ if (Test-Port $port) {
     Write-Log "启动成功，端口 $port 已监听"
 } else {
     Write-Log "启动后端口 $port 仍未监听，请查看 autostart.err.log"
+    exit 1
 }

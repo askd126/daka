@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Stop'
 
 $taskName = 'HikDaka-TokenAdmin'
-$scriptPath = 'D:\HaiKang\daka\token-admin\windows-autostart.ps1'
+$scriptPath = Join-Path $PSScriptRoot 'windows-autostart.ps1'
 
 if (-not (Test-Path -LiteralPath $scriptPath)) {
     throw "找不到启动脚本：$scriptPath"
