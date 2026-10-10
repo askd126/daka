@@ -21,6 +21,7 @@ const SEND_KEY_PATTERN = /^(?:sctp\d+t[0-9a-z]+|sct[0-9a-z]+)$/i;
 
 let queue = Promise.resolve();
 const rateWindow = [];
+const statusWindow = [];
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
   throw new Error('TOKEN_ADMIN_PORT 必须是 1 到 65535 之间的整数');
@@ -116,6 +117,15 @@ const allowSubmission = () => {
   return true;
 };
 
+// /api/status 每次请求都会 docker exec 一次，单独限流，防止被刷爆容器。
+const allowStatusCheck = () => {
+  const now = Date.now();
+  while (statusWindow.length && now - statusWindow[0] > 60000) statusWindow.shift();
+  if (statusWindow.length >= 20) return false;
+  statusWindow.push(now);
+  return true;
+};
+
 const prepareQingLong = () => {
   const coreCheck = spawnSync('docker', [
     'exec', QL_CONTAINER, 'test', '-f', CORE_PATH,
@@ -175,7 +185,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && requestUrl.pathname === '/api/status') {
-      sendJson(res, 200, await runHelper({ action: 'status' }));
+      if (!allowStatusCheck()) {
+        sendJson(res, 429, { success: false, error: '操作过于频繁，请稍后重试' });
+        return;
+      }
+      const status = await runHelper({ action: 'status' });
+      // 环境变量名列表对页面没用，不暴露给局域网里的访问者。
+      const { envNames, ...safeStatus } = status;
+      sendJson(res, 200, safeStatus);
       return;
     }
     if (req.method === 'POST' && requestUrl.pathname === '/api/tokens') {

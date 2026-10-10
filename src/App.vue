@@ -15,6 +15,8 @@ const FIXED_SIGN_SALT = 'WE1mfER7artAoJEwXKaCjw==';
 const REST_KEYWORD = '休息';
 const CUSTOM_CONFIG_KEY = 'daka_config_custom';
 const THEME_KEY = 'daka_theme';
+// 与青龙脚本、token-admin 保持一致的 Token 格式校验（36 位 UUID）。
+const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_DAKA_CONFIG = {
   message: 'success',
   location: '江苏省南京市浦口区江浦街道南京农业大学滨江校区农学院南京农业大学(滨江校区)',
@@ -507,6 +509,12 @@ const dakaWithRetry = async (maxAttempts = 3, baseDelay = 5000, shift = 'manual'
       lastError = error.message || String(error);
       lastErrorKey = null;
     }
+    // 失败后复核一次今日状态：请求可能已被服务端受理但响应丢失，
+    // 复核发现已打卡就按成功收尾，避免重复提交或把成功当失败。
+    if ((await get_today_status(true)) && isAlreadyCheckedIn(shift)) {
+      addScheduleLog({ type: 'success', shift, attempt, messageKey: 'checkInSuccess' });
+      return true;
+    }
     addScheduleLog({ type: 'retry', shift, attempt, message: lastError, messageKey: lastErrorKey });
     if (attempt < maxAttempts) {
       const delay = baseDelay * Math.pow(2, attempt - 1);
@@ -523,6 +531,9 @@ const SCHEDULE_CHECK_INTERVAL = 30 * 1000; // Check every 30s
 
 const checkScheduleAndRun = async () => {
   if (!scheduleRuntimeEnabled.value || !has_tested.value || isCheckingIn.value || isScheduleTriggered.value) return;
+  // 跨天后重新生成当日计划：日期未变时直接复用 localStorage 里的计划，零成本。
+  // 只靠 midnightCheck 在 00:00 那一分钟刷新，后台标签页被节流或休眠时会错过。
+  computeTodaySchedule();
   ensureTodayRunState();
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -747,7 +758,7 @@ const getAccountInfo = async (authToken) => {
 };
 
 const verify_input = () => {
-  if (token.value.length === 36) {
+  if (TOKEN_PATTERN.test(token.value.trim())) {
     has_verified.value = true;
     errorMessage.value = '';
   } else {
@@ -757,7 +768,8 @@ const verify_input = () => {
 };
 
 const test_token = async () => {
-  if (token.value.length !== 36) {
+  token.value = token.value.trim();
+  if (!TOKEN_PATTERN.test(token.value)) {
     overlay_visible.value = false;
     Toast(t('messages.tokenLengthError'));
     return;
@@ -884,11 +896,15 @@ const get_today_status = async (silent = false) => {
 };
 
 const addRandomOffset = (latitude, longitude, maxDistance = 50) => {
-  const latOffset = maxDistance / 111000;
-  const lngOffset = maxDistance / (111000 * Math.abs(Math.cos((latitude * Math.PI) / 180)));
-  const newLatitude = latitude + (Math.random() * 2 - 1) * latOffset;
-  const newLongitude = longitude + (Math.random() * 2 - 1) * lngOffset;
-  return { newLatitude, newLongitude };
+  // sqrt(random) 让点在半径圆内均匀分布，与青龙脚本保持一致，任意方向都不超过配置半径。
+  const distance = Math.sqrt(Math.random()) * maxDistance;
+  const angle = Math.random() * Math.PI * 2;
+  const northMeters = Math.cos(angle) * distance;
+  const eastMeters = Math.sin(angle) * distance;
+  const latOffset = northMeters / 111000;
+  const lngScale = Math.max(0.01, Math.abs(Math.cos((latitude * Math.PI) / 180)));
+  const lngOffset = eastMeters / (111000 * lngScale);
+  return { newLatitude: latitude + latOffset, newLongitude: longitude + lngOffset };
 };
 
 const getSign = (payload) => {
@@ -1146,6 +1162,10 @@ const logout = () => {
   has_verified.value = false;
   token.value = '';
   smsCode.value = '';
+  // 清掉会话残留：旧账号的资料与今日状态不能留给下一次登录，定时器也一并停掉。
+  account_info.value = { is_rest_rule: false };
+  today_status.value = {};
+  stopScheduleTimer();
 };
 
 /* ── Status helpers ── */
@@ -1174,7 +1194,7 @@ const statusKind = (statusDesc) => {
 
 const loginDisabled = computed(() => {
   if (loginMethod.value === 'sms') return !phone.value || !smsCode.value || isSmsLoggingIn.value;
-  return token.value.length !== 36;
+  return !TOKEN_PATTERN.test(token.value.trim());
 });
 
 const handleLoginClick = () => {

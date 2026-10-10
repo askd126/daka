@@ -52,7 +52,8 @@ const createEnvs = async (envs) => {
   if (response.code !== 200) throw new Error(response.message || '保存到青龙失败');
 };
 
-// 青龙不同版本 updateEnv 的入参形状不同（{ env } 或 { envs: [env] }），两种都试。
+// 青龙不同版本 updateEnv 的入参形状不同（{ env } 或 { envs: [env] }），
+// 且有的版本对不认识的形状会直接 throw 而不是返回错误码，两种形状各试一次。
 const updateEnvValue = async (existing, name, value, remarks) => {
   if (typeof ql.updateEnv !== 'function') {
     throw new Error(`当前青龙版本不支持更新环境变量，请在面板里手动修改 ${name}`);
@@ -65,11 +66,21 @@ const updateEnvValue = async (existing, name, value, remarks) => {
     status: existing.status ?? 0,
     position: existing.position,
   };
-  const first = await ql.updateEnv({ env });
-  if (first?.code === 200) return;
-  const second = await ql.updateEnv({ envs: [env] });
-  if (second?.code === 200) return;
-  throw new Error(first?.message || second?.message || '更新青龙环境变量失败');
+  let firstError = null;
+  try {
+    const first = await ql.updateEnv({ env });
+    if (first?.code === 200) return;
+    firstError = new Error(first?.message || '更新青龙环境变量失败');
+  } catch (error) {
+    firstError = error;
+  }
+  try {
+    const second = await ql.updateEnv({ envs: [env] });
+    if (second?.code === 200) return;
+  } catch {
+    // 第二次失败的根因在第一次，统一抛 firstError
+  }
+  throw firstError || new Error('更新青龙环境变量失败');
 };
 
 const main = async () => {
