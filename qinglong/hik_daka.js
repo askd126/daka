@@ -202,9 +202,9 @@ const classifyHolidayDate = (date, days) => {
   const offDay = datesToCheck
     .map((day) => entries.get(day.toISOString().slice(0, 10)))
     .find((entry) => entry?.isOffDay === true);
-  // 日期散列让同一天上、下班及所有账号保持同一决定；长期约 80% 的普通周末会打卡。
+  // 日期散列让同一天上、下班及所有账号保持同一决定；长期约 50% 的普通周末会打卡。
   const weekendPunch = isWeekend && !offDay
-    ? crypto.createHash('sha256').update(chinaDateKey(date)).digest().readUInt32BE(0) / 0x100000000 < 0.8
+    ? crypto.createHash('sha256').update(chinaDateKey(date)).digest().readUInt32BE(0) / 0x100000000 < 0.5
     : false;
   return { isOffDay: Boolean(offDay), isWeekend, weekendPunch, name: offDay?.name || '' };
 };
@@ -658,7 +658,7 @@ const main = async () => {
   if (holiday.isOffDay || (holiday.isWeekend && !holiday.weekendPunch)) {
     const reason = holiday.isOffDay
       ? `${holiday.isWeekend ? '与官方节假日相连的周末' : '官方节假日'}${holiday.name ? `（${holiday.name}）` : ''}`
-      : '普通周末，今日未命中 80% 打卡日期';
+      : '普通周末，今日未命中 50% 打卡日期';
     log(`今天是${reason}，本次安全跳过`);
     if (!args.checkOnly) {
       await sendSummaryNotification(
@@ -669,7 +669,7 @@ const main = async () => {
     }
     return;
   } else if (holiday.isWeekend) {
-    log('今天是普通周末，命中 80% 打卡日期，继续检查考勤状态');
+    log('今天是普通周末，命中 50% 打卡日期，继续检查考勤状态');
   } else {
     log('官方节假日检查通过');
   }

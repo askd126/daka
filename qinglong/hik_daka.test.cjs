@@ -26,7 +26,7 @@ test('官方节假日与周末相连时，周六和周日都跳过', () => {
   }
 });
 
-test('独立周末的决定跨班次稳定，长期比例接近 80%', () => {
+test('独立周末的决定跨班次稳定，长期比例接近 50%', () => {
   let punchDays = 0;
   let weekendDays = 0;
   for (let day = Date.UTC(2026, 0, 1); day < Date.UTC(2036, 0, 1); day += 86400000) {
@@ -39,7 +39,7 @@ test('独立周末的决定跨班次稳定，长期比例接近 80%', () => {
     punchDays += Number(morning.weekendPunch);
     weekendDays += 1;
   }
-  assert.ok(punchDays / weekendDays > 0.75 && punchDays / weekendDays < 0.85);
+  assert.ok(punchDays / weekendDays > 0.45 && punchDays / weekendDays < 0.55);
 });
 
 test('跨年相连的周末、补班日和普通工作日按各自规则判断', () => {
