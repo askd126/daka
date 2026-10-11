@@ -19,7 +19,7 @@
 1. 手动启动时需 Node.js 18 或更高版本；Linux 安装脚本可自动补装独立运行时。
 2. Docker 可在当前终端直接使用。
 3. 青龙容器正在运行，默认容器名为 `qinglong`。
-4. 已运行本项目的青龙订阅，容器中存在 `/ql/data/scripts/hik_daka.js`。
+4. 已运行本项目的青龙订阅，容器脚本目录中存在 `hik_daka.js`；支持订阅仓库子目录，无需复制到根目录。
 
 ## 启动
 
@@ -82,6 +82,8 @@ sudo bash token-admin/install.sh install --yes \
 
 `--no-container-autostart` 不更改 Docker 的开机启用状态及青龙容器的 restart 策略；需自行保证青龙在重启后可用。`--no-autostart` 仅关闭前端下次开机自启，本次仍立即启动。已有策略不会因这两个选项被重置。可用 `--node /绝对路径/node` 指定运行时。
 
+脚本自动在青龙容器的 `/ql/data/scripts`、旧版 `/ql/scripts` 及订阅子目录中查找 `hik_daka.js`。如同时订阅 GitHub/Gitee 导致存在多份，会列出候选路径；用 `--core-path /ql/data/scripts/实际仓库/qinglong/hik_daka.js` 选择，配置在更新后保留。`--core-path auto` 恢复自动查找。
+
 国内仓库安装/更新源可指定为 Gitee（请先确保镜像已同步新版脚本）：
 
 ```sh
@@ -137,7 +139,7 @@ sudo bash token-admin/install.sh install --yes \
   --legacy-service 旧服务名 --legacy-env /etc/old-token-admin.env
 ```
 
-自动导入旧服务内联 `Environment=` 和旧目录 `.env` / `--legacy-env` 中的 `TOKEN_ADMIN_HOST`、`TOKEN_ADMIN_PORT`、`QL_CONTAINER`。导入顺序为：已有托管配置 → 旧服务内联设置 → 旧目录 `.env` → 指定旧配置文件 → 命令行参数。文件只按键值读取，不执行其中的 Shell 内容。旧版仅通过终端 `export` 设置过的值无法自动恢复，请用 `--host`、`--port`、`--container` 明确传入。
+自动导入旧服务内联 `Environment=` 和旧目录 `.env` / `--legacy-env` 中的 `TOKEN_ADMIN_HOST`、`TOKEN_ADMIN_PORT`、`QL_CONTAINER`、`QL_HIK_DAKA_PATH`。导入顺序为：已有托管配置 → 旧服务内联设置 → 旧目录 `.env` → 指定旧配置文件 → 命令行参数。文件只按键值读取，不执行其中的 Shell 内容。旧版仅通过终端 `export` 设置过的值无法自动恢复，请用相应命令行参数明确传入。
 
 若旧服务也叫 `hik-daka-token-admin`，仍需传 `--legacy-service hik-daka-token-admin` 允许接管。非托管的已有安装目录不会被覆盖；请用新 `--dir`，把原目录作为 `--legacy-dir`。端口被其他进程占用时脚本会报错并回退，不会按端口强杀进程。
 
@@ -179,6 +181,7 @@ Unregister-ScheduledTask -TaskName 'HikDaka-TokenAdmin' -Confirm:$false
 | `TOKEN_ADMIN_HOST` | `0.0.0.0` | 监听地址；仅本机访问可改为 `127.0.0.1` |
 | `TOKEN_ADMIN_PORT` | `5710` | 页面端口 |
 | `QL_CONTAINER` | `qinglong` | 青龙 Docker 容器名称 |
+| `QL_HIK_DAKA_PATH` | 自动查找 | 容器内核心脚本绝对路径；有多份 `hik_daka.js` 时需显式选择 |
 
 PowerShell 示例：
 
@@ -193,6 +196,14 @@ Linux/macOS 示例：
 ```sh
 QL_CONTAINER=qinglong TOKEN_ADMIN_PORT=5710 npm start
 ```
+
+若旧版提示固定路径 `/ql/data/scripts/hik_daka.js` 不存在，先更新仓库，然后使用**仓库中的新版安装脚本**执行安装/更新，以替换旧的固定路径预检。可用以下命令检查容器中的实际位置：
+
+```sh
+docker exec qinglong find /ql/data/scripts -type f -name hik_daka.js
+```
+
+有多份时，手动启动可设置 `QL_HIK_DAKA_PATH`，托管安装可传 `--core-path`。不需要把订阅文件复制成根目录的旧副本。
 
 ## 获取 Token
 

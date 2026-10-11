@@ -7,12 +7,13 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const { findQingLongCore } = require('./ql_token_admin.cjs');
 
 const HOST = process.env.TOKEN_ADMIN_HOST || '0.0.0.0';
 const PORT = Number(process.env.TOKEN_ADMIN_PORT || 5710);
 const QL_CONTAINER = process.env.QL_CONTAINER || 'qinglong';
 const HELPER_PATH = '/ql/data/scripts/ql_token_admin.cjs';
-const CORE_PATH = '/ql/data/scripts/hik_daka.js';
+let corePath;
 const LOCAL_HELPER_PATH = path.join(__dirname, 'ql_token_admin.cjs');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CSRF_TOKEN = crypto.randomBytes(32).toString('hex');
@@ -69,7 +70,7 @@ const readJson = (req) => new Promise((resolve, reject) => {
 
 const runHelper = (payload) => new Promise((resolve, reject) => {
   const child = spawn('docker', [
-    'exec', '-i', QL_CONTAINER, 'node', HELPER_PATH,
+    'exec', '-i', '-e', `QL_HIK_DAKA_PATH=${corePath}`, QL_CONTAINER, 'node', HELPER_PATH,
   ], {
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -127,19 +128,7 @@ const allowStatusCheck = () => {
 };
 
 const prepareQingLong = () => {
-  const coreCheck = spawnSync('docker', [
-    'exec', QL_CONTAINER, 'test', '-f', CORE_PATH,
-  ], {
-    windowsHide: true,
-    encoding: 'utf8',
-  });
-  if (coreCheck.error) {
-    throw new Error(`无法执行 Docker：${coreCheck.error.message}`);
-  }
-  if (coreCheck.status !== 0) {
-    throw new Error(`青龙容器 ${QL_CONTAINER} 中未找到 ${CORE_PATH}，请先运行青龙订阅`);
-  }
-
+  corePath = findQingLongCore(QL_CONTAINER, process.env.QL_HIK_DAKA_PATH || '');
   const copyResult = spawnSync('docker', [
     'cp', LOCAL_HELPER_PATH, `${QL_CONTAINER}:${HELPER_PATH}`,
   ], {
@@ -152,6 +141,7 @@ const prepareQingLong = () => {
   if (copyResult.status !== 0) {
     throw new Error(copyResult.stderr.trim() || '安装青龙辅助脚本失败');
   }
+  console.log(`青龙核心脚本：${corePath}`);
 };
 
 const serveStatic = (res, filename, contentType, replacements = {}) => {

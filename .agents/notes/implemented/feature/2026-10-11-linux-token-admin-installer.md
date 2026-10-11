@@ -14,7 +14,7 @@ Token 管理前端原先只提供 npm 手动启动及 Windows 登录启动。Ubu
 
 默认启用前端和 Docker 自启并将指定青龙容器设为 unless-stopped，均可选择关闭管理。systemd 只管理宿主机前端，等待青龙文件就绪；不通过 systemd 拉起容器，以免与 Docker restart 策略竞争。root 服务沿用现有 Docker CLI 访问模型，不向局域网提供安装控制接口。
 
-旧版通过 `--legacy-dir`、`--legacy-env`、`--legacy-service` 显式迁移。仅导入三个前端环境设置，命令行参数优先；旧服务成功后禁用，失败恢复。原仓库、本地改动与青龙账号数据保留。无法还原旧终端 export 值，要求显式传入；不按端口杀掉未知进程。
+旧版通过 `--legacy-dir`、`--legacy-env`、`--legacy-service` 显式迁移。仅导入前端环境设置及核心脚本路径，命令行参数优先；旧服务成功后禁用，失败恢复。原仓库、本地改动与青龙账号数据保留。无法还原旧终端 export 值，要求显式传入；不按端口杀掉未知进程。安装预检和开机等待使用[统一的青龙脚本路径解析](../bug-fix/2026-10-11-qinglong-subscription-core-path.md)，支持订阅子目录及显式选择核心脚本。
 
 ## Related decisions
 

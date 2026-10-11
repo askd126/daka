@@ -14,6 +14,7 @@ BRANCH=main
 TOKEN_ADMIN_HOST=0.0.0.0
 TOKEN_ADMIN_PORT=5710
 QL_CONTAINER=qinglong
+QL_HIK_DAKA_PATH=
 AUTOSTART=yes
 CONTAINER_AUTOSTART=yes
 NODE_PATH=
@@ -41,13 +42,14 @@ usage() {
   --host 0.0.0.0             监听地址
   --port 5710                端口
   --container qinglong       已有青龙容器名称
+  --core-path /容器内路径.js  多份核心脚本时指定；传 auto 恢复自动查找
   --autostart / --no-autostart 前端开机自启开关（不影响立即启动）
   --container-autostart      Docker 开机启动、青龙 restart=unless-stopped（默认）
   --no-container-autostart   保留 Docker/青龙原有启动策略
   --node /绝对路径/node       使用指定的 Node.js >=18
   --source /路径/daka         使用本地代码，跳过 Git 下载（可为 token-admin 目录）
-  --legacy-dir /路径/daka     保留旧目录；读取其中 .env 的三个前端设置
-  --legacy-env /路径/文件     导入旧 EnvironmentFile 的三个前端设置
+  --legacy-dir /路径/daka     保留旧目录；读取其中 .env 的前端设置
+  --legacy-env /路径/文件     导入旧 EnvironmentFile 的前端设置
   --legacy-service 服务名     导入旧服务内联环境设置并接管，成功后禁用；失败恢复
   --help, -h                 查看帮助
 
@@ -66,7 +68,7 @@ read_config() {
         key=${BASH_REMATCH[2]}; value=${BASH_REMATCH[3]}
         if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then value=${value:1:-1}; fi
         case "$key" in
-            TOKEN_ADMIN_HOST|TOKEN_ADMIN_PORT|QL_CONTAINER) printf -v "$key" '%s' "$value" ;;
+            TOKEN_ADMIN_HOST|TOKEN_ADMIN_PORT|QL_CONTAINER|QL_HIK_DAKA_PATH) printf -v "$key" '%s' "$value" ;;
             INSTALL_DIR|REPO|BRANCH|NODE_PATH|AUTOSTART|CONTAINER_AUTOSTART)
                 if [[ "$mode" == managed ]]; then printf -v "$key" '%s' "$value"; fi ;;
         esac
@@ -91,13 +93,14 @@ while (($#)); do
         --no-autostart) overrides[AUTOSTART]=no; shift ;;
         --container-autostart) overrides[CONTAINER_AUTOSTART]=yes; shift ;;
         --no-container-autostart) overrides[CONTAINER_AUTOSTART]=no; shift ;;
-        --dir|--repo|--branch|--host|--port|--container|--node|--source|--legacy-dir|--legacy-env|--legacy-service)
+        --dir|--repo|--branch|--host|--port|--container|--core-path|--node|--source|--legacy-dir|--legacy-env|--legacy-service)
             (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || die "$1 缺少参数"
             case "$1" in
                 --dir) overrides[INSTALL_DIR]=$2 ;; --repo) overrides[REPO]=$2 ;;
                 --branch) overrides[BRANCH]=$2 ;; --host) overrides[TOKEN_ADMIN_HOST]=$2 ;;
                 --port) overrides[TOKEN_ADMIN_PORT]=$2 ;; --container) overrides[QL_CONTAINER]=$2 ;;
                 --node) overrides[NODE_PATH]=$2 ;; --source) SOURCE_DIR=$2 ;;
+                --core-path) overrides[QL_HIK_DAKA_PATH]=$2 ;;
                 --legacy-dir) LEGACY_DIR=$2 ;; --legacy-env) LEGACY_ENV=$2 ;;
                 --legacy-service) LEGACY_SERVICE=${2%.service} ;;
             esac
@@ -118,7 +121,7 @@ if [[ -n "$LEGACY_SERVICE" ]]; then
     read -r -a legacy_entries <<< "$legacy_environment"
     for entry in "${legacy_entries[@]}"; do
         entry=${entry#\"}; entry=${entry%\"}
-        if [[ "$entry" =~ ^(TOKEN_ADMIN_HOST|TOKEN_ADMIN_PORT|QL_CONTAINER)=([a-zA-Z0-9_.:-]+)$ ]]; then
+        if [[ "$entry" =~ ^(TOKEN_ADMIN_HOST|TOKEN_ADMIN_PORT|QL_CONTAINER|QL_HIK_DAKA_PATH)=([a-zA-Z0-9_./:-]+)$ ]]; then
             printf -v "${BASH_REMATCH[1]}" '%s' "${BASH_REMATCH[2]}"
         fi
     done
@@ -148,9 +151,11 @@ if [[ "$YES" == no ]]; then
     ask TOKEN_ADMIN_HOST '监听地址'
     ask TOKEN_ADMIN_PORT '页面端口'
     ask QL_CONTAINER '青龙容器名'
+    ask QL_HIK_DAKA_PATH '核心脚本容器路径（留空/auto 自动查找）'
     ask AUTOSTART '前端开机自启 yes/no'
     ask CONTAINER_AUTOSTART '设置 Docker/青龙开机启动 yes/no'
 fi
+[[ "$QL_HIK_DAKA_PATH" != auto ]] || QL_HIK_DAKA_PATH=
 
 [[ "$INSTALL_DIR" =~ ^/[a-zA-Z0-9_./-]+$ && "$INSTALL_DIR" != *'/../'* && "$INSTALL_DIR" != */.. ]] || die '安装路径必须为无空格的绝对路径，不能含 ..'
 INSTALL_DIR=$(realpath -m "$INSTALL_DIR")
@@ -161,6 +166,7 @@ if [[ ! "$TOKEN_ADMIN_PORT" =~ ^[0-9]{1,5}$ ]]; then die '端口须为 1–65535
 TOKEN_ADMIN_PORT=$((10#$TOKEN_ADMIN_PORT))
 [[ "$TOKEN_ADMIN_HOST" =~ ^[a-zA-Z0-9.:_-]+$ ]] || die '监听地址格式不合法'
 [[ "$QL_CONTAINER" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || die '容器名格式不合法'
+[[ -z "$QL_HIK_DAKA_PATH" || "$QL_HIK_DAKA_PATH" =~ ^/[a-zA-Z0-9_./-]+$ ]] || die '核心脚本需要无空格的容器内绝对路径'
 [[ "$BRANCH" =~ ^[a-zA-Z0-9][a-zA-Z0-9_./-]*$ ]] || die '分支格式不合法'
 [[ "$REPO" =~ ^https://[a-zA-Z0-9./_:@%-]+$ ]] || die '仓库必须是 HTTPS URL'
 [[ "$AUTOSTART" =~ ^(yes|no)$ && "$CONTAINER_AUTOSTART" =~ ^(yes|no)$ ]] || die '启动开关须为 yes 或 no'
@@ -264,7 +270,7 @@ if [[ $(docker inspect --format '{{.State.Running}}' "$QL_CONTAINER") != true ]]
     [[ "$CONTAINER_AUTOSTART" == yes ]] || die '青龙容器未启动'
     docker start "$QL_CONTAINER" >/dev/null
 fi
-docker exec "$QL_CONTAINER" test -f /ql/data/scripts/hik_daka.js || die '容器中缺少 hik_daka.js，请先运行本项目青龙订阅'
+"$NODE_PATH" "$SOURCE_DIR/ql_token_admin.cjs" --resolve-container "$QL_CONTAINER" "$QL_HIK_DAKA_PATH" || die '青龙核心脚本检查失败，参见上方具体原因'
 
 version=$(date -u +%Y%m%dT%H%M%SZ)-$$
 RELEASE=$INSTALL_DIR/releases/$version
@@ -297,7 +303,7 @@ const s=require("net").createServer(); s.on("error",e=>{console.error("端口不
 s.listen(Number(process.env.TOKEN_ADMIN_PORT),process.env.TOKEN_ADMIN_HOST,()=>s.close());'
 ln -s "$RELEASE" "$INSTALL_DIR/.next-link"
 mv -Tf "$INSTALL_DIR/.next-link" "$INSTALL_DIR/current"
-for key in INSTALL_DIR REPO BRANCH TOKEN_ADMIN_HOST TOKEN_ADMIN_PORT QL_CONTAINER NODE_PATH AUTOSTART CONTAINER_AUTOSTART; do
+for key in INSTALL_DIR REPO BRANCH TOKEN_ADMIN_HOST TOKEN_ADMIN_PORT QL_CONTAINER QL_HIK_DAKA_PATH NODE_PATH AUTOSTART CONTAINER_AUTOSTART; do
     printf '%s=%s\n' "$key" "${!key}"
 done > "$CONFIG"
 chmod 600 "$CONFIG"

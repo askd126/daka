@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.cjs",
     "check": "node --check server.cjs && node --check ql_token_admin.cjs && node --check public/app.js",
-    "test": "node --test ql_token_admin.test.cjs public/app.test.cjs"
+    "test": "node --test ql_token_admin.test.cjs qinglong-paths.test.cjs public/app.test.cjs"
   },
   "engines": {
     "node": ">=18"

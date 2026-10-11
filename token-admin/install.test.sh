@@ -8,6 +8,10 @@ export FIXTURE_REPO=$REPO
 TEST_ROOT=$(mktemp -d)
 export TEST_ROOT
 mkdir -p "$TEST_ROOT/bin" /run/systemd/system /run/lock /etc/systemd/system
+mkdir -p /ql/data/scripts/askd126_daka/qinglong
+printf 'module.exports = { getAccount: async () => ({ accountNo: "fixture" }) };\n' > /ql/data/scripts/askd126_daka/qinglong/hik_daka.js
+mkdir -p /ql/shell/preload
+printf 'module.exports = { getEnvs: async () => ({code:200,data:[]}), close() {} };\n' > /ql/shell/preload/client.js
 export PATH="$TEST_ROOT/bin:$PATH"
 cleanup() {
   local pid_file
@@ -53,7 +57,8 @@ cat > "$TEST_ROOT/bin/docker" <<'MOCK'
 set -eu
 printf '%s\n' "$*" >> "$TEST_ROOT/docker.calls"
 case "$1" in
-  info|cp|start) : ;;
+  info|start) : ;;
+  cp) cp "$2" "${3#*:}" ;;
   inspect)
     case "$*" in
       *State.Running*) echo true ;;
@@ -61,7 +66,14 @@ case "$1" in
     esac ;;
   update) echo "$3" > "$TEST_ROOT/restart-policy" ;;
   exec)
-    case "$*" in *'test -f'*) : ;; *) cat >/dev/null; echo '{"success":true,"count":1,"pushKeyCount":0}' ;; esac ;;
+    shift
+    while [[ "$1" == -* ]]; do
+      case "$1" in -i) shift ;; -e) export "$2"; shift 2 ;; *) exit 1 ;; esac
+    done
+    shift # container name
+    [[ "$1" == node ]] || exit 1
+    shift
+    exec /usr/bin/node "$@" ;;
   *) exit 1 ;;
 esac
 MOCK
@@ -128,10 +140,23 @@ bash "$SCRIPT" install --yes --source "$REPO" --dir "$TEST_ROOT/app" --port 1571
 assert grep -q '^TOKEN_ADMIN_PORT=15710$' /etc/hik-daka-token-admin.env
 assert test -f "$TEST_ROOT/hik-daka-token-admin.enabled"
 assert test "$(cat "$TEST_ROOT/restart-policy")" = unless-stopped
+assert test ! -f /ql/data/scripts/hik_daka.js
+assert grep -q 'askd126_daka/qinglong/hik_daka.js' "$TEST_ROOT/service.log"
 assert curl --noproxy '*' -fsS http://127.0.0.1:15710/api/status
 first=$(readlink "$TEST_ROOT/app/current")
 echo 'PASS: fresh install, missing Node bootstrap, autostart, real HTTP, Docker policy'
 rm "$TEST_ROOT/bin/node"
+
+# Multiple subscriptions require an explicit persisted choice; no accidental version selection.
+mkdir -p /ql/data/scripts/second-repo/qinglong
+cp /ql/data/scripts/askd126_daka/qinglong/hik_daka.js /ql/data/scripts/second-repo/qinglong/hik_daka.js
+if bash "$SCRIPT" update --yes --source "$REPO" > "$TEST_ROOT/ambiguous.log" 2>&1; then exit 1; fi
+assert grep -q '找到多份' "$TEST_ROOT/ambiguous.log"
+assert curl --noproxy '*' -fsS http://127.0.0.1:15710/api/status
+bash "$SCRIPT" update --yes --source "$REPO" --core-path /ql/data/scripts/askd126_daka/qinglong/hik_daka.js
+assert grep -q '^QL_HIK_DAKA_PATH=/ql/data/scripts/askd126_daka/qinglong/hik_daka.js$' /etc/hik-daka-token-admin.env
+rm /ql/data/scripts/second-repo/qinglong/hik_daka.js
+echo 'PASS: nested core loaded by real helper; multiple cores rejected or explicitly selected'
 
 # Persistent configuration and old release survive updates, with no npm install.
 cp -r "$REPO/token-admin" "$TEST_ROOT/source"
@@ -145,9 +170,10 @@ second=$(readlink "$TEST_ROOT/app/current")
 echo 'PASS: update retains configuration and old code; autostart can be disabled'
 
 # Updates without --source use the saved/selectable repository; download failure leaves the old server up.
-bash "$SCRIPT" update --yes --repo https://gitee.com/askd126/daka.git
+bash "$SCRIPT" update --yes --repo https://gitee.com/askd126/daka.git --core-path auto
 assert grep -q 'https://gitee.com/askd126/daka.git' "$TEST_ROOT/git.calls"
 assert grep -q '^REPO=https://gitee.com/askd126/daka.git$' /etc/hik-daka-token-admin.env
+assert grep -q '^QL_HIK_DAKA_PATH=$' /etc/hik-daka-token-admin.env
 second=$(readlink "$TEST_ROOT/app/current")
 touch "$TEST_ROOT/git-fail"
 if bash "$SCRIPT" update --yes > "$TEST_ROOT/download-failure.log" 2>&1; then exit 1; fi

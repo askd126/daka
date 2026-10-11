@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Docker may be active before Qinglong finishes starting. systemd retries on failure.
-for ((attempt=0; attempt<60; attempt++)); do
-    if docker exec "${QL_CONTAINER:-qinglong}" test -f /ql/data/scripts/hik_daka.js 2>/dev/null; then
+deadline=$((SECONDS + 300))
+while ((SECONDS < deadline)); do
+    if "${NODE_PATH:?NODE_PATH is required}" "$(dirname -- "${BASH_SOURCE[0]}")/ql_token_admin.cjs" --resolve-container "${QL_CONTAINER:-qinglong}" "${QL_HIK_DAKA_PATH:-}"; then
         cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
         exec "${NODE_PATH:?NODE_PATH is required}" server.cjs
     fi

@@ -2,8 +2,76 @@
 
 'use strict';
 
-const ql = require('/ql/shell/preload/client.js');
-const { getAccount } = require('/ql/data/scripts/hik_daka.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+// This resolver runs inside Qinglong; host filesystem paths do not apply.
+const resolveCorePath = ({
+  roots = ['/ql/data/scripts', '/ql/scripts'],
+  explicitPath = process.env.QL_HIK_DAKA_PATH || '',
+} = {}) => {
+  if (explicitPath) {
+    if (!path.isAbsolute(explicitPath)) throw new Error('QL_HIK_DAKA_PATH 必须是容器内的绝对路径');
+    if (!fs.existsSync(explicitPath) || !fs.statSync(explicitPath).isFile()) {
+      throw new Error(`指定的青龙核心脚本不存在：${explicitPath}`);
+    }
+    return fs.realpathSync(explicitPath);
+  }
+  const found = new Set();
+  const visited = new Set();
+  const scan = (directory, depth) => {
+    if (!fs.existsSync(directory)) return;
+    const realDirectory = fs.realpathSync(directory);
+    if (visited.has(realDirectory)) return;
+    visited.add(realDirectory);
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const filename = path.join(directory, entry.name);
+      if (entry.name === 'hik_daka.js' && fs.statSync(filename).isFile()) {
+        found.add(fs.realpathSync(filename));
+      } else if (depth < 8 && entry.isDirectory() &&
+          !['node_modules', '.git', '.cache', '__pycache__'].includes(entry.name)) {
+        scan(filename, depth + 1);
+      }
+    }
+  };
+  for (const root of roots) scan(root, 0);
+  const candidates = [...found].sort();
+  if (!candidates.length) {
+    throw new Error(`青龙脚本目录中未找到 hik_daka.js（已检查 ${roots.join('、')} 及订阅子目录），请先运行本项目订阅`);
+  }
+  if (candidates.length > 1) {
+    throw new Error(`找到多份 hik_daka.js，请通过 QL_HIK_DAKA_PATH 或安装参数 --core-path 指定：\n${candidates.join('\n')}`);
+  }
+  return candidates[0];
+};
+
+const findQingLongCore = (container, explicitPath = '', run = spawnSync) => {
+  const code = `const fs = require('node:fs'); const path = require('node:path');
+const resolveCorePath = ${resolveCorePath.toString()};
+try { console.log(resolveCorePath({ explicitPath: process.argv[1] || '' })); }
+catch (error) { console.error(error.message); process.exitCode = 1; }`;
+  const result = run('docker', ['exec', container, 'node', '-e', code, explicitPath], {
+    windowsHide: true, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024,
+  });
+  if (result.error) throw new Error(`无法检查青龙容器 ${container}：${result.error.message}`);
+  if (result.status !== 0) {
+    throw new Error(String(result.stderr || '').trim() || `青龙容器 ${container} 检查失败（退出码 ${result.status}）`);
+  }
+  const resolved = String(result.stdout || '').trim();
+  if (!resolved.startsWith('/') || resolved.includes('\n')) throw new Error('青龙返回的核心脚本路径无效');
+  return resolved;
+};
+
+// Keep path discovery importable on the host without loading container-only modules.
+let ql;
+let getAccount;
+const loadQingLong = () => {
+  if (ql) return;
+  const corePath = process.env.QL_HIK_DAKA_PATH || resolveCorePath();
+  ({ getAccount } = require(corePath));
+  ql = require('/ql/shell/preload/client.js');
+};
 
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENV_PATTERN = /^HIK_DAKA_TOKEN(?:_\d+)?$/;
@@ -116,6 +184,7 @@ const findExistingAccount = async (envs, token, accountId) => {
 };
 
 const handleRequest = async (request) => {
+  loadQingLong();
   const envs = await getEnvList('HIK_DAKA_TOKEN', ENV_PATTERN);
   const pushEnvs = await getEnvList('HIK_DAKA_PUSH_KEY', PUSH_ENV_PATTERN);
 
@@ -225,7 +294,14 @@ const handleRequest = async (request) => {
   };
 };
 
-if (require.main === module) {
+if (require.main === module && process.argv[2] === '--resolve-container') {
+  try {
+    console.log(findQingLongCore(process.argv[3] || 'qinglong', process.argv[4] || process.env.QL_HIK_DAKA_PATH || ''));
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
+} else if (require.main === module) {
   readRequest()
     .then(handleRequest)
     .then((result) => console.log(JSON.stringify(result)))
@@ -233,7 +309,7 @@ if (require.main === module) {
       console.log(JSON.stringify({ success: false, error: error.message }));
       process.exitCode = 1;
     })
-    .finally(() => ql.close());
+    .finally(() => ql?.close());
 }
 
-module.exports = { handleRequest };
+module.exports = { handleRequest, resolveCorePath, findQingLongCore };

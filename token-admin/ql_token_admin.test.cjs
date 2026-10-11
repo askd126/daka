@@ -4,6 +4,9 @@ const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 
+// The mocked account module lives at this container path; filesystem discovery has separate tests.
+process.env.QL_HIK_DAKA_PATH = '/ql/data/scripts/hik_daka.js';
+
 const OLD_TOKEN = '11111111-1111-4111-8111-111111111111';
 const NEW_TOKEN = '22222222-2222-4222-8222-222222222222';
 const OTHER_TOKEN = '33333333-3333-4333-8333-333333333333';
