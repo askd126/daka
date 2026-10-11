@@ -13,7 +13,7 @@
       <section class="hero">
         <div class="eyebrow"><span class="status-dot"></span> 青龙多账号管理</div>
         <h1>添加打卡账号</h1>
-        <p>提交前会验证 Token。验证成功后自动保存到青龙，并由现有上、下班任务统一处理。</p>
+        <p>提交前会检测青龙中是否已有该账号。新账号验证 Token 后保存；已有账号会先提示，再确认需要的更新。</p>
       </section>
 
       <section class="card" aria-labelledby="form-title">
@@ -63,7 +63,7 @@
             <button id="toggle-send-key" class="ghost" type="button" aria-label="显示 SendKey">显示</button>
           </div>
           <div class="field-meta">
-            <span id="send-key-help">填写后本人会收到属于自己的打卡结果；留空则本人不会收到推送</span>
+            <span id="send-key-help">填写后可新增或更新通知 Key；留空不会上传或修改已有通知 Key</span>
           </div>
 
           <button id="submit-button" class="primary" type="submit">
@@ -115,7 +115,7 @@
         <ol class="steps">
           <li><span>1</span><p>用微信扫码登录 Server酱，进入「SendKey」页面。</p></li>
           <li><span>2</span><p>复制 <code>SendKey</code>（形如 <code>SCT</code> 或 <code>sctp&lt;数字&gt;t</code> 开头），粘贴到上方「Server酱 SendKey」输入框。</p></li>
-          <li><span>3</span><p>不填也可以提交，只是本人不会收到打卡推送。</p></li>
+          <li><span>3</span><p>新账号不填则不配置推送；已有账号不填会保留原通知 Key。</p></li>
         </ol>
       </section>
 

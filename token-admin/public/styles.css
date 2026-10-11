@@ -213,6 +213,7 @@ input:focus {
 
 .result.success { color: var(--green-dark); background: var(--green-soft); }
 .result.error { color: var(--danger); background: var(--danger-soft); }
+.result.info { color: #775b11; background: #fff7da; }
 
 .guide {
   margin-top: 22px;

@@ -195,6 +195,29 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, safeStatus);
       return;
     }
+    if (req.method === 'POST' && requestUrl.pathname === '/api/accounts/check') {
+      if (req.headers['x-csrf-token'] !== CSRF_TOKEN) {
+        sendJson(res, 403, { success: false, error: '页面验证已失效，请刷新后重试' });
+        return;
+      }
+      if (req.headers['content-type']?.split(';', 1)[0] !== 'application/json') {
+        sendJson(res, 415, { success: false, error: '仅接受 JSON 请求' });
+        return;
+      }
+      if (!allowStatusCheck()) {
+        sendJson(res, 429, { success: false, error: '操作过于频繁，请稍后重试' });
+        return;
+      }
+      const body = await readJson(req);
+      const token = String(body.token || '').trim();
+      if (!TOKEN_PATTERN.test(token)) {
+        sendJson(res, 400, { success: false, error: 'Token 格式不正确，应为 36 位 UUID' });
+        return;
+      }
+      const account = await enqueue(() => runHelper({ action: 'check', token }));
+      sendJson(res, 200, account);
+      return;
+    }
     if (req.method === 'POST' && requestUrl.pathname === '/api/tokens') {
       if (req.headers['x-csrf-token'] !== CSRF_TOKEN) {
         sendJson(res, 403, { success: false, error: '页面验证已失效，请刷新后重试' });
@@ -220,7 +243,13 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { success: false, error: 'SendKey 格式不正确，应为 SCT 开头或 sctp<N>t 开头的 Server酱密钥' });
         return;
       }
-      const result = await enqueue(() => runHelper({ action: 'submit', token, sendKey }));
+      const result = await enqueue(() => runHelper({
+        action: 'submit',
+        token,
+        sendKey,
+        confirmExisting: body.confirmExisting === true,
+        confirmNewWithUnknown: body.confirmNewWithUnknown === true,
+      }));
       sendJson(res, 200, result);
       return;
     }

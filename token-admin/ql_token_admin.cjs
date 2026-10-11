@@ -13,6 +13,14 @@ const SEND_KEY_PATTERN = /^(?:sctp\d+t[0-9a-z]+|sct[0-9a-z]+)$/i;
 
 // HIK_DAKA_TOKEN_3 ↔ HIK_DAKA_PUSH_KEY_3，与 hik_daka.js 的配对规则保持一致。
 const pushEnvNameFor = (tokenEnvName) => tokenEnvName.replace('HIK_DAKA_TOKEN', 'HIK_DAKA_PUSH_KEY');
+const accountIdOf = (account) => String(account?.accountNo || '').trim();
+const accountIdFromRemarks = (remarks) => {
+  const matched = String(remarks || '').match(/\[hik-account:([^\]]+)\]/);
+  if (!matched) return '';
+  try { return decodeURIComponent(matched[1]); } catch { return ''; }
+};
+const tokenRemarks = (accountName, accountId) =>
+  `海康考勤 Token - ${accountName} [hik-account:${encodeURIComponent(accountId)}]`;
 
 const readRequest = () => new Promise((resolve, reject) => {
   let input = '';
@@ -83,8 +91,31 @@ const updateEnvValue = async (existing, name, value, remarks) => {
   throw firstError || new Error('更新青龙环境变量失败');
 };
 
-const main = async () => {
-  const request = await readRequest();
+// 老环境变量没有账号 ID 备注时，用仍有效的旧 Token 查询账号 ID；失效的旧 Token 无法自动判定身份。
+const findExistingAccount = async (envs, token, accountId) => {
+  const exact = envs.find((item) => String(item.value || '').trim() === token);
+  if (exact) return { existing: exact, unverifiedCount: 0 };
+  if (!accountId) return { existing: null, unverifiedCount: 0 };
+
+  const tagged = envs.find((item) => accountIdFromRemarks(item.remarks) === accountId);
+  if (tagged) return { existing: tagged, unverifiedCount: 0 };
+
+  const legacy = envs.filter((item) => !accountIdFromRemarks(item.remarks));
+  const results = await Promise.allSettled(legacy.map((item) =>
+    getAccount(String(item.value || '').trim(), 6000)));
+  let unverifiedCount = 0;
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    if (result.status === 'rejected' || !accountIdOf(result.value)) {
+      unverifiedCount += 1;
+    } else if (accountIdOf(result.value) === accountId) {
+      return { existing: legacy[index], unverifiedCount };
+    }
+  }
+  return { existing: null, unverifiedCount };
+};
+
+const handleRequest = async (request) => {
   const envs = await getEnvList('HIK_DAKA_TOKEN', ENV_PATTERN);
   const pushEnvs = await getEnvList('HIK_DAKA_PUSH_KEY', PUSH_ENV_PATTERN);
 
@@ -97,63 +128,96 @@ const main = async () => {
     };
   }
 
-  if (request.action !== 'submit') throw new Error('不支持的操作');
+  if (request.action !== 'check' && request.action !== 'submit') throw new Error('不支持的操作');
   const token = String(request.token || '').trim();
   if (!TOKEN_PATTERN.test(token)) throw new Error('Token 格式不正确，应为 36 位 UUID');
+
+  const exact = envs.find((item) => String(item.value || '').trim() === token);
+  if (request.action === 'check' && exact) {
+    const pushEnvName = pushEnvNameFor(exact.name);
+    return { success: true, exists: true, sameToken: true, envName: exact.name,
+      hasPushKey: pushEnvs.some((item) => item.name === pushEnvName), unverifiedCount: 0 };
+  }
+
+  const account = await getAccount(token, 30000);
+  const accountName = String(account?.nickName || account?.name || account?.accountNo || '未知账号');
+  const accountId = accountIdOf(account);
+  if (!accountId && !exact) throw new Error('海康接口未返回账号 ID，无法安全检查是否已存在');
+  const { existing: duplicate, unverifiedCount } = await findExistingAccount(envs, token, accountId);
+  const pushEnvName = duplicate ? pushEnvNameFor(duplicate.name) : '';
+  const existingPush = duplicate && pushEnvs.find((item) => item.name === pushEnvName);
+  const sameToken = !!duplicate && String(duplicate.value || '').trim() === token;
+
+  if (request.action === 'check') {
+    return { success: true, exists: !!duplicate, sameToken, envName: duplicate?.name || '',
+      accountName, hasPushKey: !!existingPush, unverifiedCount };
+  }
+
   const sendKey = String(request.sendKey || '').trim();
   if (sendKey && !SEND_KEY_PATTERN.test(sendKey)) {
     throw new Error('SendKey 格式不正确，应为 SCT 开头或 sctp<N>t 开头的 Server酱密钥');
   }
 
-  const account = await getAccount(token, 30000);
-  const accountName = String(account?.nickName || account?.name || account?.accountNo || '未知账号');
-  const duplicate = envs.find((item) => String(item.value || '').trim() === token);
-
   if (duplicate) {
-    const pushEnvName = pushEnvNameFor(duplicate.name);
-    const existing = pushEnvs.find((item) => item.name === pushEnvName);
-    if (!sendKey) {
+    if (sameToken && !sendKey) {
       return {
         success: true,
         duplicate: true,
+        sameToken: true,
         envName: duplicate.name,
         accountName,
         count: envs.length,
         pushKeyCount: pushEnvs.length,
-        hasPushKey: !!existing,
+        hasPushKey: !!existingPush,
       };
     }
-    // 补配或更换这个账号的 SendKey，不用先删掉 Token 再重建。
+    if (request.confirmExisting !== true) {
+      return { success: true, duplicate: true, requiresConfirmation: true,
+        sameToken, envName: duplicate.name, accountName, hasPushKey: !!existingPush };
+    }
+
+    // 账号 ID 相同时更新原 Token；SendKey 留空时完全不触碰原通知变量。
+    if (!sameToken) {
+      await updateEnvValue(duplicate, duplicate.name, token, tokenRemarks(accountName, accountId));
+    }
     const remarks = `Server酱 SendKey - ${accountName}`;
-    if (existing) {
-      await updateEnvValue(existing, pushEnvName, sendKey, remarks);
-    } else {
-      await createEnvs([{ name: pushEnvName, value: sendKey, remarks }]);
+    if (sendKey) {
+      if (existingPush) {
+        await updateEnvValue(existingPush, pushEnvName, sendKey, remarks);
+      } else {
+        await createEnvs([{ name: pushEnvName, value: sendKey, remarks }]);
+      }
     }
     return {
       success: true,
       duplicate: true,
-      updatedPushKey: true,
+      updatedToken: !sameToken,
+      updatedPushKey: !!sendKey,
       envName: duplicate.name,
       pushEnvName,
       accountName,
       count: envs.length,
-      pushKeyCount: existing ? pushEnvs.length : pushEnvs.length + 1,
-      hasPushKey: true,
+      pushKeyCount: existingPush || !sendKey ? pushEnvs.length : pushEnvs.length + 1,
+      hasPushKey: !!existingPush || !!sendKey,
     };
   }
 
+  if (unverifiedCount && request.confirmNewWithUnknown !== true) {
+    return { success: true, exists: false, requiresConfirmation: true,
+      checkIncomplete: true, unverifiedCount, accountName };
+  }
+
   const envName = nextEnvName(envs);
-  const pushEnvName = pushEnvNameFor(envName);
-  const newEnvs = [{ name: envName, value: token, remarks: `海康考勤 Token - ${accountName}` }];
-  if (sendKey) newEnvs.push({ name: pushEnvName, value: sendKey, remarks: `Server酱 SendKey - ${accountName}` });
+  const newPushEnvName = pushEnvNameFor(envName);
+  const newEnvs = [{ name: envName, value: token, remarks: tokenRemarks(accountName, accountId) }];
+  if (sendKey) newEnvs.push({ name: newPushEnvName, value: sendKey, remarks: `Server酱 SendKey - ${accountName}` });
   await createEnvs(newEnvs);
 
   return {
     success: true,
     duplicate: false,
     envName,
-    pushEnvName: sendKey ? pushEnvName : '',
+    pushEnvName: sendKey ? newPushEnvName : '',
     accountName,
     count: envs.length + 1,
     pushKeyCount: pushEnvs.length + (sendKey ? 1 : 0),
@@ -161,10 +225,15 @@ const main = async () => {
   };
 };
 
-main()
-  .then((result) => console.log(JSON.stringify(result)))
-  .catch((error) => {
-    console.log(JSON.stringify({ success: false, error: error.message }));
-    process.exitCode = 1;
-  })
-  .finally(() => ql.close());
+if (require.main === module) {
+  readRequest()
+    .then(handleRequest)
+    .then((result) => console.log(JSON.stringify(result)))
+    .catch((error) => {
+      console.log(JSON.stringify({ success: false, error: error.message }));
+      process.exitCode = 1;
+    })
+    .finally(() => ql.close());
+}
+
+module.exports = { handleRequest };
