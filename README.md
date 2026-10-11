@@ -85,6 +85,20 @@ HIK_DAKA_TOKEN_4
 
 仓库包含开源的局域网 Token 管理页面：
 
+Ubuntu / Debian 宿主机可使用自动安装脚本，支持交互配置、更新、开机自启及旧版迁移：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/askd126/daka/main/token-admin/install.sh -o install-token-admin.sh
+sudo bash install-token-admin.sh install --yes
+
+# 后续更新（保留原配置，启动失败自动回退）
+sudo bash /opt/hik-daka-token-admin/current/install.sh update --yes
+```
+
+先部署 Docker、青龙并运行本项目订阅。默认会配置前端、Docker 和青龙容器开机启动；去掉 `--yes` 可交互选择，或使用 `--no-autostart` / `--no-container-autostart` 分别控制。详细参数及旧版迁移见 [Linux 安装说明](./token-admin/README.md#ubuntu--debian-自动安装与更新)。
+
+手动运行方式仍可使用（此方式不自动配置开机启动）：
+
 ```sh
 git clone https://github.com/askd126/daka.git
 cd daka/token-admin

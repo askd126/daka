@@ -16,7 +16,7 @@
 
 ## 前置条件
 
-1. 已安装 Node.js 18 或更高版本。
+1. 手动启动时需 Node.js 18 或更高版本；Linux 安装脚本可自动补装独立运行时。
 2. Docker 可在当前终端直接使用。
 3. 青龙容器正在运行，默认容器名为 `qinglong`。
 4. 已运行本项目的青龙订阅，容器中存在 `/ql/data/scripts/hik_daka.js`。
@@ -42,6 +42,106 @@ Token 管理页已启动：http://0.0.0.0:5710
 
 - 本机：`http://127.0.0.1:5710`
 - 局域网：`http://运行服务的电脑IP:5710`
+
+## Ubuntu / Debian 自动安装与更新
+
+适用于 **使用 systemd 的 Linux 主机**，在 Docker 宿主机执行，需要 `sudo`。先部署好 Docker 和青龙，并运行本项目订阅。脚本会自动补齐下载工具；优先使用已有 Node.js >=18，缺少时从 [Node.js 官方下载站](https://nodejs.org/en/download) 安装 Node.js 24 LTS 独立运行时并校验 SHA256。不会替换系统 Node，不需要 `npm install`。
+
+### 全自动安装
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/askd126/daka/main/token-admin/install.sh -o install-token-admin.sh
+sudo bash install-token-admin.sh install --yes
+```
+
+或在最新仓库根目录直接运行：
+
+```sh
+sudo bash token-admin/install.sh install --yes --source "$PWD"
+```
+
+默认安装到 `/opt/hik-daka-token-admin`，监听 `0.0.0.0:5710`，立即启动并配置开机自启，无需登录系统。默认启用 Docker 自启，并把指定青龙容器设为 [`unless-stopped`](https://docs.docker.com/engine/containers/start-containers-automatically/)；手动停止青龙后不会自动重新启动，需自己 `docker start qinglong`。
+
+访问 `http://主机局域网IP:5710`。脚本只启动服务，不会自动打开浏览器。页面仍仅供可信局域网使用。
+
+### 交互安装与自定义选项
+
+去掉 `--yes`，按提示选择安装目录、仓库、分支、地址、端口、容器和自启开关：
+
+```sh
+sudo bash token-admin/install.sh
+```
+
+自定义全自动安装示例：
+
+```sh
+sudo bash token-admin/install.sh install --yes \
+  --container qinglong --port 5710 --host 0.0.0.0 \
+  --autostart --no-container-autostart
+```
+
+`--no-container-autostart` 不更改 Docker 的开机启用状态及青龙容器的 restart 策略；需自行保证青龙在重启后可用。`--no-autostart` 仅关闭前端下次开机自启，本次仍立即启动。已有策略不会因这两个选项被重置。可用 `--node /绝对路径/node` 指定运行时。
+
+国内仓库安装/更新源可指定为 Gitee（请先确保镜像已同步新版脚本）：
+
+```sh
+sudo bash token-admin/install.sh install --yes --repo https://gitee.com/askd126/daka.git
+```
+
+`sh token-admin/install.sh ...` 也支持，脚本会自动转用 Bash。
+
+### 更新与日常管理
+
+```sh
+# 下载所选仓库最新代码，沿用原端口、容器、安装目录及自启选项
+sudo bash /opt/hik-daka-token-admin/current/install.sh update --yes
+
+# 更新时调整设置，或不加 --yes 进入交互配置
+sudo bash /opt/hik-daka-token-admin/current/install.sh update --yes --port 5711
+
+# 查看状态、启动、停止、重启及最近 100 行日志
+sudo bash /opt/hik-daka-token-admin/current/install.sh status
+sudo bash /opt/hik-daka-token-admin/current/install.sh start
+sudo bash /opt/hik-daka-token-admin/current/install.sh stop
+sudo bash /opt/hik-daka-token-admin/current/install.sh restart
+sudo bash /opt/hik-daka-token-admin/current/install.sh logs
+```
+
+这是**手动触发更新**；不会定时拉取代码。`install` 重复执行也会保留现有设置并安装新代码。`--source /路径/最新daka` 支持从本地代码更新；不传 `--source` 时使用持久保存的仓库和分支。运行时优先复用，不随前端更新自动升级 Node。
+
+配置保存在 `/etc/hik-daka-token-admin.env`，服务名为 `hik-daka-token-admin.service`。也可直接使用 `systemctl`、`journalctl` 管理。服务等待青龙就绪后启动前端；等待 300 秒失败后由 systemd 重试。服务以 root 运行以访问 Docker，效果等同于以 `sudo` 手动启动前端。
+
+更新先下载并检查代码，再切换版本、重启服务并检查 HTTP 页面。启动失败自动恢复上一个代码目录、配置及原服务状态；下载失败不会停止旧前端。更新时有短暂中断。`releases/` 和 `backups/` 保留旧版本与配置快照，不自动清理；确认稳定后可自行清理不再需要的历史目录，保留 `current` 指向的版本。
+
+### 从旧版手动安装迁移
+
+旧版使用 `git clone` + `npm start`，或自行创建 systemd 服务的，都可以用**最新仓库中的脚本**迁移到独立安装目录；原仓库及本地修改会保留。
+
+先停止旧的手动 `npm start` / PM2 前端，再执行：
+
+```sh
+# /home/user/daka 是旧仓库；也可直接传旧 token-admin 目录
+sudo bash token-admin/install.sh install --yes \
+  --legacy-dir /home/user/daka --container qinglong --port 5710
+```
+
+若旧服务由 systemd 管理，脚本可以停止并接管它，成功后禁用旧服务，失败则恢复：
+
+```sh
+sudo bash token-admin/install.sh install --yes \
+  --legacy-service 旧服务名 \
+  --legacy-dir /home/user/daka
+
+# 旧服务使用独立 EnvironmentFile 时，额外指定文件路径
+sudo bash token-admin/install.sh install --yes \
+  --legacy-service 旧服务名 --legacy-env /etc/old-token-admin.env
+```
+
+自动导入旧服务内联 `Environment=` 和旧目录 `.env` / `--legacy-env` 中的 `TOKEN_ADMIN_HOST`、`TOKEN_ADMIN_PORT`、`QL_CONTAINER`。导入顺序为：已有托管配置 → 旧服务内联设置 → 旧目录 `.env` → 指定旧配置文件 → 命令行参数。文件只按键值读取，不执行其中的 Shell 内容。旧版仅通过终端 `export` 设置过的值无法自动恢复，请用 `--host`、`--port`、`--container` 明确传入。
+
+若旧服务也叫 `hik-daka-token-admin`，仍需传 `--legacy-service hik-daka-token-admin` 允许接管。非托管的已有安装目录不会被覆盖；请用新 `--dir`，把原目录作为 `--legacy-dir`。端口被其他进程占用时脚本会报错并回退，不会按端口强杀进程。
+
+青龙里的账号 Token、账号 ID 标记和通知 Key 存在青龙数据中，安装和更新不会重建容器、清空环境变量或覆盖旧仓库。完整参数见 `bash token-admin/install.sh --help`。
 
 ## Windows 开机自启（可选）
 
@@ -119,6 +219,9 @@ token-admin/
 ├── server.cjs              # HTTP 服务与静态页面服务器
 ├── ql_token_admin.cjs      # 青龙环境变量读写辅助程序
 ├── package.json
+├── install.sh              # Linux 安装、更新、迁移与 systemd 管理
+├── start-linux.sh          # 等待青龙就绪并启动前端
+├── install.test.sh         # 一次性 Linux 容器安装集成测试
 └── public/
     ├── index.html
     ├── app.js

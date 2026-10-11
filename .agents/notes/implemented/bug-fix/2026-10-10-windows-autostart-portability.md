@@ -18,6 +18,8 @@ Status: implemented
 
 仓库可以克隆到任意 Windows 路径；启动失败会在任务计划程序中留下失败结果，便于排查。服务仍在用户登录后启动，且不自动打开浏览器。
 
+Linux 的开机启动与旧版本更新独立采用 systemd，见 [Linux 安装管理记录](../feature/2026-10-11-linux-token-admin-installer.md)。
+
 ## Verification
 
 PowerShell Parser 对两个 `.ps1` 文件的语法检查无错误。
