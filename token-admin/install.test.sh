@@ -10,7 +10,7 @@ export TEST_ROOT
 mkdir -p "$TEST_ROOT/bin" /run/systemd/system /run/lock /etc/systemd/system
 mkdir -p /ql/data/scripts/askd126_daka/qinglong
 printf 'module.exports = { getAccount: async () => ({ accountNo: "fixture" }) };\n' > /ql/data/scripts/askd126_daka/qinglong/hik_daka.js
-mkdir -p /ql/shell/preload
+mkdir -p /ql/data/config /ql/shell/preload
 printf 'module.exports = { getEnvs: async () => ({code:200,data:[]}), close() {} };\n' > /ql/shell/preload/client.js
 export PATH="$TEST_ROOT/bin:$PATH"
 cleanup() {
@@ -61,6 +61,7 @@ case "$1" in
   cp) cp "$2" "${3#*:}" ;;
   inspect)
     case "$*" in
+      *NetworkSettings.Networks*) echo 127.0.0.1 ;;
       *State.Running*) echo true ;;
       *RestartPolicy*) cat "$TEST_ROOT/restart-policy" ;;
     esac ;;
@@ -71,6 +72,7 @@ case "$1" in
       case "$1" in -i) shift ;; -e) export "$2"; shift 2 ;; *) exit 1 ;; esac
     done
     shift # container name
+    if [[ "$1" == chmod ]]; then exec /bin/chmod "${@:2}"; fi
     [[ "$1" == node ]] || exit 1
     shift
     exec /usr/bin/node "$@" ;;

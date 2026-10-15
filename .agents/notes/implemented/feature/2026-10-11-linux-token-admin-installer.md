@@ -33,3 +33,5 @@ Token 管理前端原先只提供 npm 手动启动及 Windows 登录启动。Ubu
 ## Verification
 
 一次性 Linux 容器中以模拟 systemctl/Docker 和真实 Node/HTTP 覆盖安装、缺失运行时安装与坏校验拒绝、更新保留设置、仓库切换、下载失败不中断、运行失败回退、旧配置/服务迁移和端口冲突保护。容器不挂载 Docker socket，不接触真实青龙数据。此测试不等于 Ubuntu 实机重启验证。既有 Node 前端测试及语法检查继续运行。
+
+账号密码更新与凭据持久化见 [自动登录与十天 Cookie 更新](2026-10-15-auto-login-cookie-refresh.md)，沿用本文的既有契约。

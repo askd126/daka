@@ -75,6 +75,22 @@
         <div id="result" class="result" role="status" aria-live="polite" hidden></div>
       </section>
 
+      <section class="card">
+        <details><summary>高级选项：自动登录与 Cookie 更新</summary>
+          <p>启用后立即登录，并由后台每 10 天更新 www_token 对应的青龙 Token。浏览器关闭后仍运行，管理服务须保持启动。已有账号更新需再次确认。</p>
+          <p>账号密码加密保存在管理服务所在设备，不保存到浏览器。仅在可信网络或 HTTPS 下填写。</p>
+          <form id="auto-login-form">
+            <label for="auto-username">海康账号（手机号）</label>
+            <input id="auto-username" autocomplete="username" inputmode="tel" maxlength="11" required />
+            <label for="auto-password">密码</label>
+            <input id="auto-password" type="password" autocomplete="current-password" maxlength="256" />
+            <button id="auto-save" class="primary" type="submit">启用并立即更新</button>
+            <button id="auto-disable" class="ghost" type="button">停用此账号并删除保存的密码</button>
+          </form>
+          <p id="auto-result" role="status" aria-live="polite"></p>
+          <pre id="auto-status"></pre>
+        </details>
+      </section>
       <section class="guide" aria-labelledby="guide-title">
         <div class="guide-head">
           <div>
@@ -125,5 +141,6 @@
       </section>
     </main>
     <script src="/app.js" defer></script>
+  <script src="/auto-login.js" defer></script>
   </body>
 </html>

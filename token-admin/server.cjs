@@ -9,6 +9,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { findQingLongCore } = require('./ql_token_admin.cjs');
 
+const { AutoLogin } = require('./auto-login.cjs');
 const HOST = process.env.TOKEN_ADMIN_HOST || '0.0.0.0';
 const PORT = Number(process.env.TOKEN_ADMIN_PORT || 5710);
 const QL_CONTAINER = process.env.QL_CONTAINER || 'qinglong';
@@ -159,6 +160,23 @@ const serveStatic = (res, filename, contentType, replacements = {}) => {
   res.end(content);
 };
 
+const autoLogin = new AutoLogin(runHelper);
+fs.mkdirSync(autoLogin.directory, { recursive: true, mode: 0o700 });
+const bridgeKeyPath = path.join(autoLogin.directory, 'bridge-key');
+if (!fs.existsSync(bridgeKeyPath)) fs.writeFileSync(bridgeKeyPath, crypto.randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
+const bridgeKey = fs.readFileSync(bridgeKeyPath, 'utf8');
+const prepareRecoveryBridge = () => {
+  const gatewayResult = spawnSync('docker', ['inspect', '-f', '{{range .NetworkSettings.Networks}}{{println .Gateway}}{{end}}', QL_CONTAINER], { encoding: 'utf8', windowsHide: true });
+  const gateway = gatewayResult.stdout?.trim().split(/\s+/)[0];
+  if (gatewayResult.status !== 0 || !/^[0-9.]+$/.test(gateway || '')) throw new Error('无法获取青龙容器网关');
+  const configPath = path.join(autoLogin.directory, 'bridge.json');
+  fs.writeFileSync(configPath, JSON.stringify({ url: `http://${gateway}:${PORT}/api/auto-login/recover`, key: bridgeKey }), { mode: 0o600 });
+  const copied = spawnSync('docker', ['cp', configPath, `${QL_CONTAINER}:/ql/data/config/hik-auto-login-bridge.json`], { encoding: 'utf8', windowsHide: true });
+  if (copied.status !== 0) throw new Error('无法安装自动登录恢复桥接');
+  const secured = spawnSync('docker', ['exec', QL_CONTAINER, 'chmod', '600', '/ql/data/config/hik-auto-login-bridge.json'], { encoding: 'utf8', windowsHide: true });
+  if (secured.status !== 0) throw new Error('无法保护恢复桥接凭据');
+};
+
 const server = http.createServer(async (req, res) => {
   try {
     const requestUrl = new URL(req.url, `http://${HOST}:${PORT}`);
@@ -169,6 +187,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && requestUrl.pathname === '/styles.css') {
       serveStatic(res, 'styles.css', 'text/css; charset=utf-8');
       return;
+    }
+    if (req.method === 'GET' && requestUrl.pathname === '/auto-login.js') {
+      serveStatic(res, 'auto-login.js', 'text/javascript; charset=utf-8'); return;
     }
     if (req.method === 'GET' && requestUrl.pathname === '/app.js') {
       serveStatic(res, 'app.js', 'text/javascript; charset=utf-8');
@@ -183,6 +204,35 @@ const server = http.createServer(async (req, res) => {
       // 环境变量名列表对页面没用，不暴露给局域网里的访问者。
       const { envNames, ...safeStatus } = status;
       sendJson(res, 200, safeStatus);
+      return;
+    }
+    if (req.method === 'POST' && requestUrl.pathname === '/api/auto-login/recover') {
+      const authorization = Buffer.from(req.headers.authorization || '');
+      const expected = Buffer.from(`Bearer ${bridgeKey}`);
+      if (authorization.length !== expected.length || !crypto.timingSafeEqual(authorization, expected)) {
+        sendJson(res, 403, { success: false, error: '恢复请求未授权' }); return;
+      }
+      if (!allowSubmission()) { sendJson(res, 429, { success: false, error: '操作过于频繁' }); return; }
+      const body = await readJson(req);
+      sendJson(res, 200, await enqueue(() => autoLogin.recover(body.envName, body.token)));
+      return;
+    }
+    if (req.method === 'GET' && requestUrl.pathname === '/api/auto-login') {
+      sendJson(res, 200, { success: true, accounts: autoLogin.status() });
+      return;
+    }
+    if (req.method === 'POST' && requestUrl.pathname === '/api/auto-login') {
+      if (req.headers['x-csrf-token'] !== CSRF_TOKEN) {
+        sendJson(res, 403, { success: false, error: '页面验证失效，请刷新' }); return;
+      }
+      if (req.headers['content-type']?.split(';', 1)[0] !== 'application/json') {
+        sendJson(res, 415, { success: false, error: '仅接受 JSON 请求' }); return;
+      }
+      if (!allowSubmission()) {
+        sendJson(res, 429, { success: false, error: '操作过于频繁' }); return;
+      }
+      const body = await readJson(req);
+      sendJson(res, 200, await enqueue(() => autoLogin.configure(body)));
       return;
     }
     if (req.method === 'POST' && requestUrl.pathname === '/api/accounts/check') {
@@ -251,6 +301,10 @@ const server = http.createServer(async (req, res) => {
 
 try {
   prepareQingLong();
+  prepareRecoveryBridge();
+  const refreshAutoLogin = () => enqueue(() => autoLogin.refresh()).catch(() => console.error('自动登录状态保存失败'));
+  refreshAutoLogin();
+  setInterval(refreshAutoLogin, 60 * 60 * 1000).unref();
   server.listen(PORT, HOST, () => {
     console.log(`Token 管理页已启动：http://${HOST}:${PORT}`);
   });

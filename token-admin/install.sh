@@ -229,7 +229,7 @@ else
     git clone --depth 1 --branch "$BRANCH" -- "$REPO" "$TMP/repo"
     SOURCE_DIR=$TMP/repo/token-admin
 fi
-for file in server.cjs ql_token_admin.cjs package.json public/index.html public/app.js public/styles.css install.sh start-linux.sh; do
+for file in server.cjs auto-login.cjs ql_token_admin.cjs package.json public/index.html public/app.js public/auto-login.js public/styles.css vendor/crypto-js.cjs vendor/crypto-js.LICENSE install.sh start-linux.sh; do
     [[ -f "$SOURCE_DIR/$file" ]] || die "代码不完整，缺少 $file；旧版请通过 --legacy-dir 迁移，再从最新仓库下载。"
 done
 mkdir -p "$INSTALL_DIR/releases" "$INSTALL_DIR/backups"
@@ -276,10 +276,12 @@ version=$(date -u +%Y%m%dT%H%M%SZ)-$$
 RELEASE=$INSTALL_DIR/releases/$version
 BACKUP=$INSTALL_DIR/backups/$version
 mkdir -p "$RELEASE/public" "$BACKUP"
-for file in server.cjs ql_token_admin.cjs package.json install.sh start-linux.sh README.md; do
+for file in server.cjs auto-login.cjs ql_token_admin.cjs package.json install.sh start-linux.sh README.md; do
     [[ ! -f "$SOURCE_DIR/$file" ]] || cp "$SOURCE_DIR/$file" "$RELEASE/$file"
 done
 cp "$SOURCE_DIR/public/"* "$RELEASE/public/"
+mkdir -p "$RELEASE/vendor"
+cp "$SOURCE_DIR/vendor/"* "$RELEASE/vendor/"
 chmod 755 "$RELEASE/install.sh" "$RELEASE/start-linux.sh"
 OLD_CURRENT=$(readlink "$INSTALL_DIR/current" || true)
 OLD_ACTIVE=$(systemctl is-active "$SERVICE" || true)

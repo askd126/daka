@@ -58,6 +58,7 @@ const withRetry = async (operation, label, attempts = 2, delayMs = 2000) => {
       return await operation();
     } catch (error) {
       lastError = error;
+      if (error.code === 'AUTH_EXPIRED') throw error;
       if (attempt < attempts) {
         log(`${label}失败，${delayMs / 1000} 秒后重试`);
         await sleep(delayMs);
@@ -107,6 +108,17 @@ const getSign = (payload) => {
   return md5(md5(base).toUpperCase() + SIGN_SALT).toUpperCase();
 };
 
+const makeApiError = (status, data, fallback = '接口请求失败') => {
+  const message = String(data?.msg || data?.message || fallback);
+  if (status === 401 || Number(data?.code) === 401 || /invalid access token|token (?:expired|invalid)|登录(?:已)?(?:过期|失效)/i.test(message)) {
+    const error = new Error('登录已过期或失效，无法继续处理本次考勤。请在 Token 管理页更新 Cookie，或启用账号密码自动登录；已启用时请检查最近更新状态。');
+    error.code = 'AUTH_EXPIRED';
+    return error;
+  }
+  const safe = message.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '[Token 已隐藏]');
+  return new Error(`${status >= 400 ? `HTTP ${status}：` : ''}${safe.slice(0, 200)}`);
+};
+
 const requestJson = (method, path, token, body, extraHeaders = {}, timeoutMs = DEFAULTS.timeoutMs) =>
   new Promise((resolve, reject) => {
     const payload = body === undefined ? null : JSON.stringify(body);
@@ -136,12 +148,16 @@ const requestJson = (method, path, token, body, extraHeaders = {}, timeoutMs = D
         const text = Buffer.concat(chunks).toString('utf8');
         if (res.statusCode < 200 || res.statusCode >= 300) {
           // 接口的业务报错（如「不在打卡时间」）通常在响应体里，丢了没法排障。
-          const snippet = text.trim().slice(0, 200);
-          reject(new Error(`HTTP ${res.statusCode}${snippet ? `：${snippet}` : ''}`));
+          let data;
+          try { data = JSON.parse(text); } catch { data = { msg: text }; }
+          reject(makeApiError(res.statusCode, data));
           return;
         }
         try {
-          resolve(JSON.parse(text));
+          const data = JSON.parse(text);
+          const error = makeApiError(res.statusCode, data);
+          if (error.code === 'AUTH_EXPIRED') reject(error);
+          else resolve(data);
         } catch {
           reject(new Error('接口返回了无法解析的数据'));
         }
@@ -494,12 +510,12 @@ const requestForm = (urlString, fields, timeoutMs) => new Promise((resolve, reje
   req.end();
 });
 
-const pushToServerChan = async (sendKey, title, content, timeoutMs = 15000) => {
+const pushToServerChan = async (sendKey, title, content, timeoutMs = 15000, maxAttempts = 2) => {
   // 微信里单个 \n 不换行，需要两个，与 sendNotify.js 的处理保持一致。
   // 旧版接口收 text，Turbo 版收 title，两个都带以兼容两代 SendKey。
   const desp = content.replace(/[\n\r]/g, '\n\n');
   let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const data = await requestForm(getServerChanUrl(sendKey), { title, text: title, desp }, timeoutMs);
       if (data?.errno === 0 || data?.code === 0) return { duplicate: false };
@@ -509,7 +525,7 @@ const pushToServerChan = async (sendKey, title, content, timeoutMs = 15000) => {
     } catch (error) {
       lastError = error;
     }
-    if (attempt < 2) await sleep(1000);
+    if (attempt < maxAttempts) await sleep(1000);
   }
   throw lastError || new Error('Server酱推送失败');
 };
@@ -539,6 +555,7 @@ const buildNotificationContent = (results, globalMessage = '') => {
   if (globalMessage) lines.push(globalMessage);
 
   for (const result of results) {
+    if (result.suppressSummary) continue;
     const note = result.pushError ? `｜本人推送失败：${result.pushError}` : '';
     lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${displayName(result)}：${result.message}${note}`);
     lines.push(...buildAccountLines(result));
@@ -563,6 +580,7 @@ const buildPersonalContent = (result) => {
 };
 
 const sendSummaryNotification = async (shift, results, globalMessage = '') => {
+  if (results.length && results.every(item => item.suppressSummary) && !globalMessage) return;
   const shiftName = shift === 'morning' ? '上班' : '下班';
   const title = `海康${shiftName}打卡结果`;
   const content = buildNotificationContent(results, globalMessage);
@@ -599,6 +617,7 @@ const sendPersonalNotification = async (account, shift, result, config) => {
       `海康${shiftName}打卡结果`,
       buildPersonalContent(result),
       config.timeoutMs,
+      result.expiryEvent ? 1 : 2,
     );
     log(`[${label}] 已推送给本人（${account.pushEnvName}，密钥 ${maskKey(account.pushKey)}）${sent.duplicate ? '，内容重复已忽略' : ''}`);
     return '';
@@ -678,6 +697,10 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
       lastError = error;
     }
 
+    if (lastError.code === 'AUTH_EXPIRED') {
+      Object.assign(lastError, context, { attempts: attempt });
+      throw lastError;
+    }
     accountLog(`本次失败：${lastError.message}`);
     if (attempt < config.retries) {
       const delay = config.retryDelayMs * (2 ** (attempt - 1));
@@ -712,6 +735,53 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
   failure.details = context.details;
   failure.attempts = config.retries;
   throw failure;
+};
+
+const recoverExpiredAccount = async (account) => {
+  try {
+    const config = JSON.parse(fs.readFileSync('/ql/data/config/hik-auto-login-bridge.json', 'utf8'));
+    const response = await fetch(config.url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
+      body: JSON.stringify({ envName: account.envName, token: account.token }), signal: AbortSignal.timeout(70000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) throw new Error();
+    return data;
+  } catch {
+    let notify = true;
+    try {
+      const filename = '/ql/data/config/hik-auto-login-offline.json';
+      const events = fs.existsSync(filename) ? JSON.parse(fs.readFileSync(filename, 'utf8')) : {};
+      const fingerprint = crypto.createHash('sha256').update(account.token).digest('hex');
+      notify = events[account.envName] !== fingerprint;
+      events[account.envName] = fingerprint;
+      fs.writeFileSync(filename, JSON.stringify(events), { mode: 0o600 });
+    } catch { log('无法持久化恢复服务离线提醒状态'); }
+    return { recovered: false, notify, message: 'Cookie 已失效，自动登录恢复服务不可用，请检查 Token 管理服务' };
+  }
+};
+
+const runWithRecovery = async (account, config, args, shift, operation = runAccount, recover = recoverExpiredAccount) => {
+  try { return await operation(account, config, args, shift); }
+  catch (initial) {
+    if (initial.code !== 'AUTH_EXPIRED' || args.checkOnly) throw initial;
+    const recovery = await recover(account);
+    const metadata = { expiryEvent: true, notifyExpiry: recovery.notify === true, hasPersonalPush: !!account.pushKey };
+    if (!recovery.recovered) {
+      initial.message = recovery.message;
+      Object.assign(initial, metadata);
+      throw initial;
+    }
+    account.token = recovery.token;
+    try {
+      const result = await operation(account, config, args, shift);
+      return { ...result, ...metadata, message: `${recovery.message}；${result.message}` };
+    } catch (error) {
+      Object.assign(error, metadata);
+      error.message = `${recovery.message}；后续处理失败：${error.message}`;
+      throw error; // Never recover twice, even when the new login is immediately rejected.
+    }
+  }
 };
 
 const main = async () => {
@@ -772,11 +842,14 @@ const main = async () => {
   for (const account of accounts) {
     let result;
     try {
-      result = await runAccount(account, config, args, shift);
+      result = await runWithRecovery(account, config, args, shift);
     } catch (error) {
       const accountName = error.accountName || account.envName;
       result = {
         accountName,
+        expiryEvent: error.expiryEvent,
+        notifyExpiry: error.notifyExpiry,
+        hasPersonalPush: error.hasPersonalPush,
         personName: error.personName,
         status: 'failed',
         message: error.message,
@@ -788,7 +861,8 @@ const main = async () => {
     }
 
     // 每个账号处理完立刻推给本人：推送失败只记录，不影响打卡结果和其他账号。
-    if (!args.checkOnly) {
+    result.suppressSummary = result.expiryEvent && (!result.notifyExpiry || result.hasPersonalPush);
+    if (!args.checkOnly && (!result.expiryEvent || result.notifyExpiry)) {
       result.pushError = await sendPersonalNotification(account, shift, result, config);
     }
     results.push(result);
@@ -822,6 +896,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  runWithRecovery,
+  recoverExpiredAccount,
+  makeApiError,
+  withRetry,
   buildNotificationContent,
   buildPersonalContent,
   classifyHolidayDate,

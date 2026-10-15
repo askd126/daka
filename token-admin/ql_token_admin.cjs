@@ -188,6 +188,12 @@ const handleRequest = async (request) => {
   const envs = await getEnvList('HIK_DAKA_TOKEN', ENV_PATTERN);
   const pushEnvs = await getEnvList('HIK_DAKA_PUSH_KEY', PUSH_ENV_PATTERN);
 
+  if (request.action === 'current') {
+    const env = envs.find(item => item.name === request.envName);
+    if (!env) throw new Error('绑定的账号变量不存在');
+    return { success: true, token: String(env.value || '').trim() };
+  }
+
   if (request.action === 'status') {
     return {
       success: true,

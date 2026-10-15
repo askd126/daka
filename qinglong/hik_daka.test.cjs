@@ -11,6 +11,28 @@ script.filename = filename;
 script.paths = Module._nodeModulePaths(__dirname);
 script._compile(fs.readFileSync(filename, 'utf8'), filename);
 const { classifyHolidayDate, isOnLeave } = script.exports;
+test('过期仅恢复一次，更新后继续；检查模式不恢复，普通错误不恢复', async () => {
+  const { runWithRecovery } = script.exports;
+  const expired = () => Object.assign(new Error('expired'), { code: 'AUTH_EXPIRED' });
+  let runs = 0;
+  let recoveries = 0;
+  const account = { token: 'old', envName: 'HIK_DAKA_TOKEN', pushKey: 'key' };
+  const recover = async () => { recoveries++; return { recovered: true, notify: true, token: 'new', message: '已恢复' }; };
+  const operation = async item => { runs++; if (item.token === 'old') throw expired(); return { status: 'success', message: '已打卡' }; };
+  const result = await runWithRecovery(account, {}, {}, 'morning', operation, recover);
+  assert.equal(result.message, '已恢复；已打卡');
+  assert.equal(recoveries, 1);
+  assert.equal(runs, 2);
+  await assert.rejects(runWithRecovery({ ...account, token: 'old' }, {}, { checkOnly: true }, '', operation, recover));
+  assert.equal(recoveries, 1);
+  await assert.rejects(runWithRecovery(account, {}, {}, '', async () => { throw new Error('network'); }, recover));
+  assert.equal(recoveries, 1);
+  await assert.rejects(runWithRecovery(account, {}, {}, '', async () => { throw expired(); }, recover));
+  assert.equal(recoveries, 2);
+  const text = script.exports.buildNotificationContent([{ status: 'failed', accountName: 'hidden', message: 'expired', suppressSummary: true }, { status: 'success', accountName: 'other', message: 'ok' }]);
+  assert.equal(text.includes('expired'), false);
+  assert.equal(text.includes('other'), true);
+});
 
 const chinaTime = (day, hour = 9) => new Date(`${day}T${String(hour - 8).padStart(2, '0')}:00:00Z`);
 const off = (date, name = '节假日') => ({ date, name, isOffDay: true });
@@ -51,4 +73,22 @@ test('跨年相连的周末、补班日和普通工作日按各自规则判断',
 
 test('请假状态继续由账号流程跳过', () => {
   assert.equal(isOnLeave({ current: { details: [{ desc: '上班', statusDesc: '请假' }] } }, 'morning'), true);
+});
+
+
+test('Cookie 过期通知隐藏 Token 并停止重试，权限和网络错误保持区分', async () => {
+  const { makeApiError, withRetry, buildNotificationContent } = script.exports;
+  const secret = '22222222-2222-4222-8222-222222222222';
+  const error = makeApiError(401, { msg: `Invalid access token: ${secret}`, code: 401 });
+  let calls = 0;
+  await assert.rejects(withRetry(async () => { calls++; throw error; }, 'test', 3, 1), { code: 'AUTH_EXPIRED' });
+  assert.equal(calls, 1);
+  const notice = buildNotificationContent([{ accountName: 'HIK_DAKA_TOKEN_2', status: 'failed', message: error.message }]);
+  assert.match(notice, /登录已过期或失效/);
+  assert.match(notice, /管理页更新 Cookie/);
+  assert.equal(notice.includes(secret), false);
+  assert.equal(makeApiError(200, { code: 401 }).code, 'AUTH_EXPIRED');
+  assert.notEqual(makeApiError(403, { msg: '无权限' }).code, 'AUTH_EXPIRED');
+  assert.notEqual(makeApiError(500, { msg: '服务异常' }).code, 'AUTH_EXPIRED');
+  assert.equal(makeApiError(500, { msg: secret }).message.includes(secret), false);
 });
