@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { AutoLogin, login, INTERVAL } = require('./auto-login.cjs');
 const token = '22222222-2222-4222-8222-222222222222';
-test('每枚失效 Cookie 只登录一次，失败和无凭据仅提醒一次，重启后仍去重', async t => {
+test('每枚失效 Cookie 只登录一次，失败和无凭据每次仍可通知，重启后不重复登录', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hik-recover-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   let calls = 0;
@@ -23,17 +23,17 @@ test('每枚失效 Cookie 只登录一次，失败和无凭据仅提醒一次，
   assert.equal(first.notify, true);
   assert.equal(first.recovered, false);
   manager = new AutoLogin(helper, directory, authenticate);
-  assert.equal((await manager.recover('HIK_DAKA_TOKEN', token)).notify, false);
+  assert.equal((await manager.recover('HIK_DAKA_TOKEN', token)).notify, true);
   await manager.refresh(Date.now() + INTERVAL);
   assert.equal(calls, 1);
   assert.equal((await manager.recover('HIK_DAKA_TOKEN_2', token)).notify, true);
-  assert.equal((await manager.recover('HIK_DAKA_TOKEN_2', token)).notify, false);
+  assert.equal((await manager.recover('HIK_DAKA_TOKEN_2', token)).notify, true);
   manager.recoveries = {};
   manager.authenticate = async () => { calls++; return updated; };
   const success = await manager.recover('HIK_DAKA_TOKEN', token);
   assert.equal(success.recovered, true);
   assert.equal(success.token, updated);
-  assert.equal((await manager.recover('HIK_DAKA_TOKEN', token)).notify, false);
+  assert.equal((await manager.recover('HIK_DAKA_TOKEN', token)).notify, true);
   assert.equal(calls, 2);
 });
 test('官方登录仅返回有效 Token，错误响应不回显服务端内容', async () => {

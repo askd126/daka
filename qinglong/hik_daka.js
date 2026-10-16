@@ -555,7 +555,6 @@ const buildNotificationContent = (results, globalMessage = '') => {
   if (globalMessage) lines.push(globalMessage);
 
   for (const result of results) {
-    if (result.suppressSummary) continue;
     const note = result.pushError ? `｜本人推送失败：${result.pushError}` : '';
     lines.push(`${STATUS_ICONS[result.status] || 'ℹ️'} ${displayName(result)}：${result.message}${note}`);
     lines.push(...buildAccountLines(result));
@@ -580,7 +579,6 @@ const buildPersonalContent = (result) => {
 };
 
 const sendSummaryNotification = async (shift, results, globalMessage = '') => {
-  if (results.length && results.every(item => item.suppressSummary) && !globalMessage) return;
   const shiftName = shift === 'morning' ? '上班' : '下班';
   const title = `海康${shiftName}打卡结果`;
   const content = buildNotificationContent(results, globalMessage);
@@ -617,7 +615,6 @@ const sendPersonalNotification = async (account, shift, result, config) => {
       `海康${shiftName}打卡结果`,
       buildPersonalContent(result),
       config.timeoutMs,
-      result.expiryEvent ? 1 : 2,
     );
     log(`[${label}] 已推送给本人（${account.pushEnvName}，密钥 ${maskKey(account.pushKey)}）${sent.duplicate ? '，内容重复已忽略' : ''}`);
     return '';
@@ -748,16 +745,7 @@ const recoverExpiredAccount = async (account) => {
     if (!response.ok || !data.success) throw new Error();
     return data;
   } catch {
-    let notify = true;
-    try {
-      const filename = '/ql/data/config/hik-auto-login-offline.json';
-      const events = fs.existsSync(filename) ? JSON.parse(fs.readFileSync(filename, 'utf8')) : {};
-      const fingerprint = crypto.createHash('sha256').update(account.token).digest('hex');
-      notify = events[account.envName] !== fingerprint;
-      events[account.envName] = fingerprint;
-      fs.writeFileSync(filename, JSON.stringify(events), { mode: 0o600 });
-    } catch { log('无法持久化恢复服务离线提醒状态'); }
-    return { recovered: false, notify, message: 'Cookie 已失效，自动登录恢复服务不可用，请检查 Token 管理服务' };
+    return { recovered: false, notify: true, message: 'Cookie 已失效，自动登录恢复服务不可用，请检查 Token 管理服务' };
   }
 };
 
@@ -766,7 +754,7 @@ const runWithRecovery = async (account, config, args, shift, operation = runAcco
   catch (initial) {
     if (initial.code !== 'AUTH_EXPIRED' || args.checkOnly) throw initial;
     const recovery = await recover(account);
-    const metadata = { expiryEvent: true, notifyExpiry: recovery.notify === true, hasPersonalPush: !!account.pushKey };
+    const metadata = { expiryEvent: true };
     if (!recovery.recovered) {
       initial.message = recovery.message;
       Object.assign(initial, metadata);
@@ -848,8 +836,6 @@ const main = async () => {
       result = {
         accountName,
         expiryEvent: error.expiryEvent,
-        notifyExpiry: error.notifyExpiry,
-        hasPersonalPush: error.hasPersonalPush,
         personName: error.personName,
         status: 'failed',
         message: error.message,
@@ -861,8 +847,7 @@ const main = async () => {
     }
 
     // 每个账号处理完立刻推给本人：推送失败只记录，不影响打卡结果和其他账号。
-    result.suppressSummary = result.expiryEvent && (!result.notifyExpiry || result.hasPersonalPush);
-    if (!args.checkOnly && (!result.expiryEvent || result.notifyExpiry)) {
+    if (!args.checkOnly) {
       result.pushError = await sendPersonalNotification(account, shift, result, config);
     }
     results.push(result);

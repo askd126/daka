@@ -30,7 +30,7 @@ test('过期仅恢复一次，更新后继续；检查模式不恢复，普通�
   await assert.rejects(runWithRecovery(account, {}, {}, '', async () => { throw expired(); }, recover));
   assert.equal(recoveries, 2);
   const text = script.exports.buildNotificationContent([{ status: 'failed', accountName: 'hidden', message: 'expired', suppressSummary: true }, { status: 'success', accountName: 'other', message: 'ok' }]);
-  assert.equal(text.includes('expired'), false);
+  assert.equal(text.includes('expired'), true);
   assert.equal(text.includes('other'), true);
 });
 
@@ -93,4 +93,22 @@ test('Cookie 过期通知隐藏 Token 并停止重试，权限和网络错误保
   assert.notEqual(makeApiError(403, { msg: '无权限' }).code, 'AUTH_EXPIRED');
   assert.notEqual(makeApiError(500, { msg: '服务异常' }).code, 'AUTH_EXPIRED');
   assert.equal(makeApiError(500, { msg: secret }).message.includes(secret), false);
+});
+
+
+test('总推送完整列出过期账号和重复失效事件，全失败也发送', async t => {
+  const previous = globalThis.QLAPI;
+  t.after(() => { if (previous === undefined) delete globalThis.QLAPI; else globalThis.QLAPI = previous; });
+  const sent = [];
+  globalThis.QLAPI = { systemNotify: async payload => { sent.push(payload); return { code: 200 }; } };
+  const results = [
+    { status: 'failed', accountName: '账号A', expiryEvent: true, notifyExpiry: true, hasPersonalPush: true, message: 'Cookie 已失效，未保存自动登录凭据' },
+    { status: 'failed', accountName: '账号B', expiryEvent: true, notifyExpiry: false, hasPersonalPush: true, message: 'Cookie 仍失效，此次已尝试自动登录一次但未恢复' },
+  ];
+  await script.exports.sendSummaryNotification('evening', results);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].title, '海康下班打卡结果');
+  assert.match(sent[0].content, /账号A：Cookie 已失效，未保存自动登录凭据/);
+  assert.match(sent[0].content, /账号B：Cookie 仍失效/);
+  assert.match(sent[0].content, /成功 0 个，跳过 0 个，失败 2 个/);
 });

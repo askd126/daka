@@ -127,9 +127,14 @@ class AutoLogin {
   async recover(envName, staleToken, now = Date.now()) {
     if (!/^HIK_DAKA_TOKEN(?:_\d+)?$/.test(envName) || !TOKEN.test(staleToken)) throw new Error('恢复请求无效');
     const current = await this.helper({ action: 'current', envName });
-    if (current.token !== staleToken) return { success: true, recovered: true, notify: false, token: current.token, message: '使用后台已更新的 Cookie' };
+    if (current.token !== staleToken) return { success: true, recovered: true, notify: true, token: current.token, message: '使用后台已更新的 Cookie' };
     const fingerprint = crypto.createHash('sha256').update(staleToken).digest('hex');
-    if (this.recoveries[envName]?.fingerprint === fingerprint) return { success: true, recovered: false, notify: false, message: '此次 Cookie 失效已处理，不再重复自动登录或提醒，请在管理页重新保存凭据' };
+    if (this.recoveries[envName]?.fingerprint === fingerprint) {
+      const configured = this.records.some(item => item.envName === envName);
+      return { success: true, recovered: false, notify: true, message: configured
+        ? 'Cookie 仍失效，此次已尝试自动登录一次但未恢复，请在管理页重新保存凭据或更新 Cookie'
+        : 'Cookie 已失效，未保存自动登录凭据，请在管理页配置账号密码或更新 Cookie' };
+    }
     this.recoveries[envName] = { fingerprint, at: now };
     const record = this.records.find(item => item.envName === envName);
     if (record) { record.lastAttempt = now; record.recoveryBlocked = true; }
