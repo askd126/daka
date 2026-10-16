@@ -84,6 +84,9 @@
             <input id="auto-username" autocomplete="username" inputmode="tel" maxlength="11" required />
             <label for="auto-password">密码</label>
             <input id="auto-password" type="password" autocomplete="current-password" maxlength="256" />
+            <label for="auto-team">考勤团队编号（多团队账号必填）</label>
+            <input id="auto-team" autocomplete="off" maxlength="64" placeholder="例如 TDxxxxxxxx；留空沿用已保存团队" />
+            <p>登录后会选择此团队，并验证考勤规则和今日状态；只有一个团队时可自动选择。</p>
             <button id="auto-save" class="primary" type="submit">启用并立即更新</button>
             <button id="auto-disable" class="ghost" type="button">停用此账号并删除保存的密码</button>
           </form>

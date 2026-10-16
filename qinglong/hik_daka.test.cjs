@@ -88,6 +88,8 @@ test('Cookie 过期通知隐藏 Token 并停止重试，权限和网络错误保
   assert.match(notice, /管理页更新 Cookie/);
   assert.equal(notice.includes(secret), false);
   assert.equal(makeApiError(200, { code: 401 }).code, 'AUTH_EXPIRED');
+  assert.equal(makeApiError(200, { code: 999999, msg: '您的登录状态已失效，请重新登录' }).code, 'AUTH_EXPIRED');
+  assert.notEqual(makeApiError(200, { code: 999999, msg: '其他业务错误' }).code, 'AUTH_EXPIRED');
   assert.notEqual(makeApiError(403, { msg: '无权限' }).code, 'AUTH_EXPIRED');
   assert.notEqual(makeApiError(500, { msg: '服务异常' }).code, 'AUTH_EXPIRED');
   assert.equal(makeApiError(500, { msg: secret }).message.includes(secret), false);

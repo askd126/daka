@@ -7,22 +7,48 @@ const AES = require('./vendor/crypto-js.cjs');
 const INTERVAL = 10 * 24 * 60 * 60 * 1000;
 const TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function login(username, password, request = fetch) {
+async function login(username, password, request = fetch, requestedTeam = '') {
   // Match the official portal's CryptoJS key schedule, including its 30-byte key.
   const encrypted = AES.AES.encrypt(AES.enc.Utf8.parse(password),
     AES.enc.Utf8.parse('I0YmM5NTgtY2IyYi00OWIzLWFkZTktZj'),
     { iv: AES.enc.Utf8.parse('BjNzhiZDctOGMxOS'), mode: AES.mode.CBC, padding: AES.pad.Pkcs7 }).ciphertext.toString(AES.enc.Base64);
+  let stage = '账号密码登录失败，请检查凭据或到官方页面完成人工验证';
+  const signal = AbortSignal.timeout(40000);
   try {
     const response = await request('https://api.hikiot.com/api-saas/open/v1/pwdLogin', {
-      method: 'POST', signal: AbortSignal.timeout(20000),
+      method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: 'hidden', 'login-source': 'link-web' },
       body: JSON.stringify({ username, password: encrypted, isAuto: true }),
     });
     const data = await response.json();
     if (!response.ok || data.code !== 0 || !TOKEN.test(data.data?.token || '')) throw new Error();
-    return data.data.token;
+    const token = data.data.token;
+    const call = async (endpoint, body) => {
+      const response = await request('https://api.hikiot.com' + endpoint, {
+        method: body ? 'POST' : 'GET', signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, terminal: '0', 'UNI-Request-Source': '4' },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      const result = await response.json();
+      if (!response.ok || result.code !== 0) throw new Error();
+      return result.data;
+    };
+    stage = '登录成功，但无法读取所属团队，请稍后重试';
+    const account = await call('/api-saas/v1/account/detail');
+    const teams = (account?.teamInfoList || []).filter(team => team.teamNo && (team.personState === undefined || team.personState === 1));
+    const teamNo = requestedTeam || (teams.length === 1 ? teams[0].teamNo : '');
+    stage = requestedTeam ? '指定的考勤团队不属于此账号，请检查团队编号' : '账号属于多个团队或没有可用团队，请填写考勤团队编号';
+    if (!teamNo || !teams.some(team => team.teamNo === teamNo)) throw new Error();
+    stage = '登录成功，但切换考勤团队失败，请检查团队状态';
+    await call('/api-link-saas/v3/team/change', { teamNo, terminal: 2 });
+    stage = '登录成功，但考勤规则或今日状态验证失败，未保存此 Cookie';
+    await Promise.all([
+      call('/api-attendance/mobile-clock/v1/individual-clock-rules'),
+      call('/api-attendance/mobile-clock/v1/require-commuting'),
+    ]);
+    return token;
   } catch {
-    throw new Error('账号密码登录失败，请检查凭据或到官方页面完成人工验证');
+    throw new Error(stage);
   }
 }
 
@@ -59,7 +85,8 @@ class AutoLogin {
     fs.renameSync(file + '.tmp', file);
   }
   status() {
-    return this.records.map(({ username, lastSuccess, lastAttempt, error }) => ({
+    return this.records.map(({ username, lastSuccess, lastAttempt, error, teamNo }) => ({
+      teamNo: teamNo || '',
       username: username.slice(0, 3) + '****' + username.slice(-4), lastSuccess, lastAttempt,
       nextRefresh: lastSuccess + INTERVAL, error,
     }));
@@ -73,19 +100,22 @@ class AutoLogin {
       return { success: true, disabled: true };
     }
     if (typeof body.password !== 'string' || !body.password || body.password.length > 256) throw new Error('请填写密码');
-    const token = await this.authenticate(username, body.password);
+    const previous = this.records.find(item => item.username === username);
+    const teamNo = String(body.teamNo || previous?.teamNo || '').trim();
+    if (teamNo && !/^[A-Za-z0-9_-]{1,64}$/.test(teamNo)) throw new Error('团队编号格式不正确');
+    const token = await this.authenticate(username, body.password, undefined, teamNo);
     const result = await this.helper({ action: 'submit', token,
       confirmExisting: body.confirm === true, confirmNewWithUnknown: body.confirm === true });
     if (result.requiresConfirmation) return { success: true, requiresConfirmation: true };
     const now = Date.now();
     delete this.recoveries[result.envName];
     this.records = this.records.filter(record => record.username !== username && record.envName !== result.envName);
-    this.records.push({ username, password: body.password, envName: result.envName, lastSuccess: now, lastAttempt: now, error: '' });
+    this.records.push({ username, password: body.password, teamNo, envName: result.envName, lastSuccess: now, lastAttempt: now, error: '' });
     this.save();
     return { success: true };
   }
   async updateRecord(record, now) {
-    const token = await this.authenticate(record.username, record.password);
+    const token = await this.authenticate(record.username, record.password, undefined, record.teamNo || '');
     const account = await this.helper({ action: 'check', token });
     if (!account.exists || account.envName !== record.envName) throw new Error('账号绑定已变更，请重新保存自动登录设置');
     const result = await this.helper({ action: 'submit', token, confirmExisting: true });

@@ -110,7 +110,7 @@ const getSign = (payload) => {
 
 const makeApiError = (status, data, fallback = '接口请求失败') => {
   const message = String(data?.msg || data?.message || fallback);
-  if (status === 401 || Number(data?.code) === 401 || /invalid access token|token (?:expired|invalid)|登录(?:已)?(?:过期|失效)/i.test(message)) {
+  if (status === 401 || Number(data?.code) === 401 || /invalid access token|token (?:expired|invalid)|登录(?:状态)?(?:已)?(?:过期|失效)/i.test(message)) {
     const error = new Error('登录已过期或失效，无法继续处理本次考勤。请在 Token 管理页更新 Cookie，或启用账号密码自动登录；已启用时请检查最近更新状态。');
     error.code = 'AUTH_EXPIRED';
     return error;
@@ -742,7 +742,7 @@ const recoverExpiredAccount = async (account) => {
     const config = JSON.parse(fs.readFileSync('/ql/data/config/hik-auto-login-bridge.json', 'utf8'));
     const response = await fetch(config.url, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
-      body: JSON.stringify({ envName: account.envName, token: account.token }), signal: AbortSignal.timeout(70000),
+      body: JSON.stringify({ envName: account.envName, token: account.token }), signal: AbortSignal.timeout(150000),
     });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error();

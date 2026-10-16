@@ -29,3 +29,5 @@ Status: implemented
 提供的凭据完成一次官方接口真实登录，未输出或保存 Token。测试覆盖确认门、十天边界、加密、重启恢复、失败退避、删除凭据和绑定变更。
 
 提前过期的单次恢复与通知去重见 [Cookie 失效恢复](2026-10-15-expired-cookie-recovery.md)。
+
+密码重登须建立团队会话并通过考勤接口验证，见 [考勤团队登录修复](../bug-fix/2026-10-16-login-attendance-team-context.md)。
