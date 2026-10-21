@@ -25,3 +25,5 @@ Status: implemented
 `npm test --prefix token-admin` 验证同账号刷新 Token、无通知 Key 不写入、已有账号需确认及旧账号不可核验时的提示路径；`npm run check --prefix token-admin` 验证服务及前端脚本语法。
 
 账号密码更新与凭据持久化见 [自动登录与十天 Cookie 更新](2026-10-15-auto-login-cookie-refresh.md)，沿用本文的既有契约。
+
+浏览器个人资料和管理权限受 [个人会话与隐私隔离](../bug-fix/2026-10-21-private-browser-sessions.md) 约束，匿名访问不再返回账号状态。

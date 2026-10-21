@@ -11,7 +11,7 @@ const OLD_TOKEN = '11111111-1111-4111-8111-111111111111';
 const NEW_TOKEN = '22222222-2222-4222-8222-222222222222';
 const OTHER_TOKEN = '33333333-3333-4333-8333-333333333333';
 
-const loadHelper = (initialEnvs, accounts) => {
+const loadHelper = (initialEnvs, accounts, extraCore = {}) => {
   const envs = initialEnvs.map((item) => ({ ...item }));
   const writes = [];
   const ql = {
@@ -36,6 +36,7 @@ const loadHelper = (initialEnvs, accounts) => {
   script.require = (request) => {
     if (request === '/ql/shell/preload/client.js') return ql;
     if (request === '/ql/data/scripts/hik_daka.js') return {
+      ...extraCore,
       getAccount: async (token) => {
         if (!accounts[token]) throw new Error('Token 已失效');
         return accounts[token];
@@ -135,4 +136,23 @@ test('旧 Token 无法核验时先提示，再确认新增', async () => {
     confirmNewWithUnknown: true });
   assert.equal(result.duplicate, false);
   assert.deepEqual(helper.writes[0].envs.map((item) => item.name), ['HIK_DAKA_TOKEN_2']);
+});
+
+
+test('个人资料和写入都验证账号 ID，相同失效 Token 不能用于网页登录', async () => {
+  const helper = loadHelper([
+    { id: '1', name: 'HIK_DAKA_TOKEN', value: OLD_TOKEN, remarks: 'A [hik-account:A100]' },
+    { id: '2', name: 'HIK_DAKA_TOKEN_2', value: OTHER_TOKEN, remarks: 'B [hik-account:B200]' },
+  ], { [NEW_TOKEN]: { accountNo: 'A100', nickName: '用户A' }, [OTHER_TOKEN]: { accountNo: 'B200', nickName: '用户B' } }, {
+    getTodayStatus: async token => { assert.equal(token, NEW_TOKEN); return { personName: '用户A' }; },
+    getRule: async () => '规则A', getTodayDetails: () => [],
+  });
+  const own = await helper.handleRequest({ action: 'profile', accountId: 'A100', envName: 'HIK_DAKA_TOKEN_2', token: NEW_TOKEN });
+  assert.equal(own.accountName, '用户A');
+  assert.equal(own.bound, false);
+  assert.equal(JSON.stringify(own).includes('用户B'), false);
+  await assert.rejects(helper.handleRequest({ action: 'profile', accountId: 'A100', envName: 'HIK_DAKA_TOKEN_2', token: OTHER_TOKEN }), /不匹配/);
+  await assert.rejects(helper.handleRequest({ action: 'submit', expectedAccountId: 'A100', token: OTHER_TOKEN, confirmExisting: true }), /其他账号/);
+  await assert.rejects(helper.handleRequest({ action: 'check', token: OLD_TOKEN }), /Token 已失效/);
+  assert.equal(helper.writes.length, 0);
 });

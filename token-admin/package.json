@@ -6,8 +6,8 @@
   "license": "MIT",
   "scripts": {
     "start": "node server.cjs",
-    "check": "node --check server.cjs && node --check ql_token_admin.cjs && node --check public/app.js && node --check auto-login.cjs && node --check public/auto-login.js",
-    "test": "node --test ql_token_admin.test.cjs qinglong-paths.test.cjs public/app.test.cjs auto-login.test.cjs"
+    "check": "node --check server.cjs && node --check ql_token_admin.cjs && node --check public/app.js && node --check auto-login.cjs && node --check public/auto-login.js && node --check sessions.cjs && node --check public/session.js",
+    "test": "node --test ql_token_admin.test.cjs qinglong-paths.test.cjs public/app.test.cjs auto-login.test.cjs sessions.test.cjs server.test.cjs public/session.test.cjs"
   },
   "engines": {
     "node": ">=18"

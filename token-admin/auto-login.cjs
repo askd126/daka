@@ -59,6 +59,7 @@ class AutoLogin {
     this.directory = directory;
     this.records = [];
     this.recoveries = {};
+    this.defaultTeamNo = process.env.TOKEN_ADMIN_DEFAULT_TEAM || '';
     const file = path.join(directory, 'accounts.enc');
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file);
@@ -68,6 +69,7 @@ class AutoLogin {
       const saved = JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString());
       this.records = Array.isArray(saved) ? saved : saved.records;
       this.recoveries = Array.isArray(saved) ? {} : saved.recoveries || {};
+      this.defaultTeamNo = process.env.TOKEN_ADMIN_DEFAULT_TEAM || saved.defaultTeamNo || this.records.find(item => item.teamNo)?.teamNo || '';
     }
   }
   save() {
@@ -79,13 +81,13 @@ class AutoLogin {
     }
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv);
-    const encrypted = Buffer.concat([cipher.update(JSON.stringify({ records: this.records, recoveries: this.recoveries })), cipher.final()]);
+    const encrypted = Buffer.concat([cipher.update(JSON.stringify({ records: this.records, recoveries: this.recoveries, defaultTeamNo: this.defaultTeamNo })), cipher.final()]);
     const file = path.join(this.directory, 'accounts.enc');
     fs.writeFileSync(file + '.tmp', Buffer.concat([iv, cipher.getAuthTag(), encrypted]), { mode: 0o600 });
     fs.renameSync(file + '.tmp', file);
   }
-  status() {
-    return this.records.map(({ username, lastSuccess, lastAttempt, error, teamNo }) => ({
+  status(envName) {
+    return this.records.filter(item => !envName || item.envName === envName).map(({ username, lastSuccess, lastAttempt, error, teamNo }) => ({
       teamNo: teamNo || '',
       username: username.slice(0, 3) + '****' + username.slice(-4), lastSuccess, lastAttempt,
       nextRefresh: lastSuccess + INTERVAL, error,
@@ -101,18 +103,19 @@ class AutoLogin {
     }
     if (typeof body.password !== 'string' || !body.password || body.password.length > 256) throw new Error('请填写密码');
     const previous = this.records.find(item => item.username === username);
-    const teamNo = String(body.teamNo || previous?.teamNo || '').trim();
+    const teamNo = String(body.teamNo || previous?.teamNo || this.defaultTeamNo || '').trim();
     if (teamNo && !/^[A-Za-z0-9_-]{1,64}$/.test(teamNo)) throw new Error('团队编号格式不正确');
     const token = await this.authenticate(username, body.password, undefined, teamNo);
+    const identity = await this.helper({ action: 'check', token });
     const result = await this.helper({ action: 'submit', token,
       confirmExisting: body.confirm === true, confirmNewWithUnknown: body.confirm === true });
-    if (result.requiresConfirmation) return { success: true, requiresConfirmation: true };
+    if (result.requiresConfirmation) return { ...result, success: true, requiresConfirmation: true, accountId: identity.accountId, accountName: identity.accountName, envName: identity.envName || '', token, teamNo };
     const now = Date.now();
     delete this.recoveries[result.envName];
     this.records = this.records.filter(record => record.username !== username && record.envName !== result.envName);
     this.records.push({ username, password: body.password, teamNo, envName: result.envName, lastSuccess: now, lastAttempt: now, error: '' });
     this.save();
-    return { success: true };
+    return { success: true, accountId: identity.accountId, accountName: identity.accountName, envName: result.envName, token, teamNo };
   }
   async updateRecord(record, now) {
     const token = await this.authenticate(record.username, record.password, undefined, record.teamNo || '');

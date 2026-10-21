@@ -148,9 +148,7 @@ input:focus {
 }
 
 .ghost {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  position: static;
   height: 38px;
   padding: 0 12px;
   border: 0;
@@ -346,3 +344,14 @@ kbd {
   code, kbd { background: rgba(8, 14, 10, 0.54); }
   .privacy-note strong { color: #c0cec5; }
 }
+
+[hidden] { display: none !important; }
+.account-card { margin-bottom: 24px; }
+.account-card h3 { margin-top: 24px; font-size: 16px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 12px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+#attendance-error { color: var(--danger); }
+#recent-records p, #session-message { color: var(--muted); line-height: 1.7; }
+
+.token-field > .ghost { position: absolute; top: 8px; right: 8px; }

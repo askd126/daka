@@ -635,13 +635,19 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
   const accountLog = (message) => log(`[${accountName}] ${message}`);
   accountLog(`Token 有效（来源：${envName}）`);
 
-  const [rule, todayStatus] = await Promise.all([
-    withRetry(() => getRule(token, config.timeoutMs), `[${accountName}] 获取考勤规则`),
-    withRetry(() => getTodayStatus(token, config.timeoutMs), `[${accountName}] 获取今日状态`),
-  ]);
+  let rule, todayStatus;
+  try {
+    [rule, todayStatus] = await Promise.all([
+      withRetry(() => getRule(token, config.timeoutMs), `[${accountName}] 获取考勤规则`),
+      withRetry(() => getTodayStatus(token, config.timeoutMs), `[${accountName}] 获取今日状态`),
+    ]);
+  } catch (error) {
+    Object.assign(error, { accountId: String(account.accountNo || ''), accountName });
+    throw error;
+  }
 
   const personName = String(todayStatus?.personName || '').trim();
-  const context = { accountName, personName, rule, details: getTodayDetails(todayStatus) };
+  const context = { accountId: String(account.accountNo || ''), accountName, personName, rule, details: getTodayDetails(todayStatus) };
 
   if (!ALLOW_LEAVE_DAYS && isOnLeave(todayStatus, shift)) {
     const shiftName = shift === 'morning' ? '上班' : '下班';
@@ -726,6 +732,7 @@ const runAccount = async ({ envName, token }, config, args, shift) => {
 
   // 把账号和班次信息挂到错误上，失败时汇总通知里也能看到是谁、哪个班次、考勤状态如何。
   const failure = lastError || new Error('打卡失败');
+  failure.accountId = context.accountId;
   failure.accountName = accountName;
   failure.personName = personName;
   failure.rule = rule;
@@ -770,6 +777,14 @@ const runWithRecovery = async (account, config, args, shift, operation = runAcco
       throw error; // Never recover twice, even when the new login is immediately rejected.
     }
   }
+};
+
+const recordAccountResult = (result, shift, filename = '/ql/data/config/hik-attendance-history.jsonl') => {
+  if (!result.accountId) return;
+  const row = { at: new Date().toISOString(), shift, accountId: result.accountId, personName: result.personName || '', status: result.status,
+    message: String(result.message || '').replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi, '[Token 已隐藏]'), details: result.details || [] };
+  try { fs.appendFileSync(filename, JSON.stringify(row) + '\n', { mode: 0o600 }); }
+  catch { log('无法保存本次考勤记录'); }
 };
 
 const main = async () => {
@@ -836,6 +851,7 @@ const main = async () => {
       result = {
         accountName,
         expiryEvent: error.expiryEvent,
+        accountId: error.accountId,
         personName: error.personName,
         status: 'failed',
         message: error.message,
@@ -850,6 +866,7 @@ const main = async () => {
     if (!args.checkOnly) {
       result.pushError = await sendPersonalNotification(account, shift, result, config);
     }
+    if (!args.checkOnly) recordAccountResult(result, shift);
     results.push(result);
   }
 
@@ -881,6 +898,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  getTodayStatus,
+  getTodayDetails,
+  getRule,
+  recordAccountResult,
   runWithRecovery,
   recoverExpiredAccount,
   makeApiError,

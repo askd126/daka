@@ -229,7 +229,7 @@ else
     git clone --depth 1 --branch "$BRANCH" -- "$REPO" "$TMP/repo"
     SOURCE_DIR=$TMP/repo/token-admin
 fi
-for file in server.cjs auto-login.cjs ql_token_admin.cjs package.json public/index.html public/app.js public/auto-login.js public/styles.css vendor/crypto-js.cjs vendor/crypto-js.LICENSE install.sh start-linux.sh; do
+for file in server.cjs sessions.cjs auto-login.cjs ql_token_admin.cjs package.json public/index.html public/app.js public/auto-login.js public/session.js public/styles.css vendor/crypto-js.cjs vendor/crypto-js.LICENSE install.sh start-linux.sh; do
     [[ -f "$SOURCE_DIR/$file" ]] || die "代码不完整，缺少 $file；旧版请通过 --legacy-dir 迁移，再从最新仓库下载。"
 done
 mkdir -p "$INSTALL_DIR/releases" "$INSTALL_DIR/backups"
@@ -260,7 +260,7 @@ else
 fi
 # Avoid unit-file quoting/interpolation ambiguities, including nvm paths with spaces.
 [[ "$NODE_PATH" =~ ^/[a-zA-Z0-9_./-]+$ ]] || die 'Node 路径不能含空格或特殊字符'
-for file in server.cjs ql_token_admin.cjs public/app.js; do "$NODE_PATH" --check "$SOURCE_DIR/$file"; done
+for file in server.cjs sessions.cjs ql_token_admin.cjs public/app.js public/session.js; do "$NODE_PATH" --check "$SOURCE_DIR/$file"; done
 bash -n "$SOURCE_DIR/start-linux.sh"
 
 if [[ "$CONTAINER_AUTOSTART" == yes ]]; then systemctl enable --now docker.service; fi
@@ -276,7 +276,7 @@ version=$(date -u +%Y%m%dT%H%M%SZ)-$$
 RELEASE=$INSTALL_DIR/releases/$version
 BACKUP=$INSTALL_DIR/backups/$version
 mkdir -p "$RELEASE/public" "$BACKUP"
-for file in server.cjs auto-login.cjs ql_token_admin.cjs package.json install.sh start-linux.sh README.md; do
+for file in server.cjs sessions.cjs auto-login.cjs ql_token_admin.cjs package.json install.sh start-linux.sh README.md; do
     [[ ! -f "$SOURCE_DIR/$file" ]] || cp "$SOURCE_DIR/$file" "$RELEASE/$file"
 done
 cp "$SOURCE_DIR/public/"* "$RELEASE/public/"

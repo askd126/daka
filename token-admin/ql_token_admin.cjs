@@ -66,10 +66,12 @@ catch (error) { console.error(error.message); process.exitCode = 1; }`;
 // Keep path discovery importable on the host without loading container-only modules.
 let ql;
 let getAccount;
+let attendance;
 const loadQingLong = () => {
   if (ql) return;
   const corePath = process.env.QL_HIK_DAKA_PATH || resolveCorePath();
-  ({ getAccount } = require(corePath));
+  attendance = require(corePath);
+  ({ getAccount } = attendance);
   ql = require('/ql/shell/preload/client.js');
 };
 
@@ -188,6 +190,53 @@ const handleRequest = async (request) => {
   const envs = await getEnvList('HIK_DAKA_TOKEN', ENV_PATTERN);
   const pushEnvs = await getEnvList('HIK_DAKA_PUSH_KEY', PUSH_ENV_PATTERN);
 
+  if (request.action === 'profile') {
+    const expected = String(request.accountId || '');
+    if (!expected) throw new Error('未登录');
+    const env = envs.find(item => item.name === request.envName && accountIdFromRemarks(item.remarks) === expected);
+    let token = env ? String(env.value || '').trim() : String(request.token || '');
+    let account;
+    let accountError = '';
+    try { account = await getAccount(token, 10000); }
+    catch (error) {
+      accountError = error.message;
+      if (request.token && token !== request.token) {
+        token = request.token;
+        try { account = await getAccount(token, 10000); accountError = ''; } catch (fallback) { accountError = fallback.message; }
+      }
+    }
+    if (account && accountIdOf(account) !== expected) throw new Error('账号会话不匹配，请重新登录');
+    const result = { success: true, bound: !!env, accountName: String(account?.nickName || account?.name || request.accountName || ''), personName: '', teamNo: request.teamNo || '', today: [], history: [], rule: '', attendanceError: accountError };
+    try {
+      if (accountError) throw new Error(accountError);
+      if (!attendance.getTodayStatus || !attendance.getRule) throw new Error('请更新考勤核心脚本后查看打卡状态');
+      const [today, rule] = await Promise.all([attendance.getTodayStatus(token, 10000), attendance.getRule(token, 10000)]);
+      result.personName = String(today.personName || '');
+      result.today = attendance.getTodayDetails(today);
+      result.rule = rule;
+    } catch (error) { result.attendanceError = error.message; }
+    const filename = '/ql/data/config/hik-attendance-history.jsonl';
+    if (fs.existsSync(filename)) {
+      const size = fs.statSync(filename).size;
+      const fd = fs.openSync(filename, 'r');
+      try {
+        const buffer = Buffer.alloc(Math.min(size, 256 * 1024));
+        fs.readSync(fd, buffer, 0, buffer.length, Math.max(0, size - buffer.length));
+        result.history = buffer.toString('utf8').split(/\r?\n/).flatMap(line => {
+          try { const row = JSON.parse(line); return row.accountId === expected ? [{ at: row.at, shift: row.shift, status: row.status, message: row.message, details: row.details || [] }] : []; }
+          catch { return []; }
+        }).slice(-20).reverse();
+      } finally { fs.closeSync(fd); }
+    }
+    if (!result.history.length) {
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      result.history = result.today.filter(item => item.clocked && /^\d{2}:\d{2}$/.test(item.clockTime || '')).map(item => ({
+        at: `${day}T${item.clockTime}:00+08:00`, shift: String(item.desc).includes('下班') ? 'evening' : 'morning',
+        status: 'recorded', message: `${item.desc} ${item.clockTime} ${item.statusDesc || '已打卡'}`, details: [item],
+      })).reverse();
+    }
+    return result;
+  }
   if (request.action === 'current') {
     const env = envs.find(item => item.name === request.envName);
     if (!env) throw new Error('绑定的账号变量不存在');
@@ -208,16 +257,12 @@ const handleRequest = async (request) => {
   if (!TOKEN_PATTERN.test(token)) throw new Error('Token 格式不正确，应为 36 位 UUID');
 
   const exact = envs.find((item) => String(item.value || '').trim() === token);
-  if (request.action === 'check' && exact) {
-    const pushEnvName = pushEnvNameFor(exact.name);
-    return { success: true, exists: true, sameToken: true, envName: exact.name,
-      hasPushKey: pushEnvs.some((item) => item.name === pushEnvName), unverifiedCount: 0 };
-  }
 
   const account = await getAccount(token, 30000);
   const accountName = String(account?.nickName || account?.name || account?.accountNo || '未知账号');
   const accountId = accountIdOf(account);
-  if (!accountId && !exact) throw new Error('海康接口未返回账号 ID，无法安全检查是否已存在');
+  if (!accountId) throw new Error('海康接口未返回账号 ID，无法安全检查是否已存在');
+  if (request.expectedAccountId && request.expectedAccountId !== accountId) throw new Error('不能修改其他账号');
   const { existing: duplicate, unverifiedCount } = await findExistingAccount(envs, token, accountId);
   const pushEnvName = duplicate ? pushEnvNameFor(duplicate.name) : '';
   const existingPush = duplicate && pushEnvs.find((item) => item.name === pushEnvName);
@@ -225,7 +270,7 @@ const handleRequest = async (request) => {
 
   if (request.action === 'check') {
     return { success: true, exists: !!duplicate, sameToken, envName: duplicate?.name || '',
-      accountName, hasPushKey: !!existingPush, unverifiedCount };
+      accountId, accountName, hasPushKey: !!existingPush, unverifiedCount };
   }
 
   const sendKey = String(request.sendKey || '').trim();

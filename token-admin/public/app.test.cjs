@@ -60,7 +60,7 @@ test('已有相同 Token 且 SendKey 留空时只提示，不提交写入', asyn
   page.elements['#token'].value = TOKEN;
   await page.submit();
   assert.equal(page.submissions.length, 0);
-  assert.match(page.elements['#result'].textContent, /未做任何更改/);
+  assert.match(page.elements['#result'].textContent, /账号设置未做更改/);
 });
 
 test('刷新 Token 先确认，留空 SendKey 不会出现在提交体中', async () => {

@@ -31,3 +31,5 @@ Status: implemented
 提前过期的单次恢复与通知去重见 [Cookie 失效恢复](2026-10-15-expired-cookie-recovery.md)。
 
 密码重登须建立团队会话并通过考勤接口验证，见 [考勤团队登录修复](../bug-fix/2026-10-16-login-attendance-team-context.md)。
+
+浏览器个人资料和管理权限受 [个人会话与隐私隔离](../bug-fix/2026-10-21-private-browser-sessions.md) 约束，匿名访问不再返回账号状态。

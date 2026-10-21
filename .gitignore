@@ -33,3 +33,11 @@ coverage
 .env
 .env.local
 .env.production
+
+# Local authentication state must never be published
+**/.hik-daka-token-admin/
+**/accounts.enc
+**/sessions.enc
+**/session-key
+**/bridge-key
+**/hik-auto-login-bridge.json

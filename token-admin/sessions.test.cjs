@@ -1,0 +1,31 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { Sessions } = require('./sessions.cjs');
+test('Cookie 会话隔离、加密持久化、失效与退出撤销', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hik-sessions-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let store = new Sessions(directory);
+  const headers = {};
+  const response = { setHeader(name, value) { headers[name] = value; } };
+  store.issue({ headers: {} }, response, { accountId: 'owner-A', token: 'private-token-A' }, true);
+  const cookie = headers['Set-Cookie'];
+  assert.match(cookie, /HttpOnly; SameSite=Strict; Max-Age=2592000; Secure/);
+  assert.equal(cookie.includes('owner-A'), false);
+  const browserA = { headers: { cookie } };
+  assert.equal(store.get({ headers: {} }), null);
+  assert.equal(store.get({ headers: { cookie: 'hik_session=invalid' } }), null);
+  store = new Sessions(directory);
+  assert.equal(store.get(browserA).accountId, 'owner-A');
+  assert.equal(fs.readFileSync(path.join(directory, 'sessions.enc')).includes('private-token-A'), false);
+  const sid = cookie.split(';')[0].split('=')[1];
+  assert.equal(fs.readFileSync(path.join(directory, 'sessions.enc')).includes(sid), false);
+  store.issue(browserA, response, { accountId: 'owner-B' });
+  assert.equal(store.get(browserA), null); // Account switch revokes the old browser session.
+  const browserB = { headers: { cookie: headers['Set-Cookie'] } };
+  store.logout(browserB, response);
+  assert.equal(new Sessions(directory).get(browserB), null);
+  assert.match(headers['Set-Cookie'], /Max-Age=0/);
+});

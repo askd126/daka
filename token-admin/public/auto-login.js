@@ -9,18 +9,11 @@
   const result = document.querySelector('#auto-result');
   const status = document.querySelector('#auto-status');
   let confirmation = false;
-  const reset = () => { confirmation = false; save.textContent = '启用并立即更新'; };
+  const reset = () => { confirmation = false; save.textContent = '登录并启用自动更新'; };
   username.addEventListener('input', reset);
   password.addEventListener('input', reset);
   team.addEventListener('input', reset);
-  async function refresh() {
-    try {
-      const response = await fetch('/api/auto-login');
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error();
-      status.textContent = data.accounts.map(account => `${account.username}\n考勤团队：${account.teamNo || '自动选择'}\n最近更新：${new Date(account.lastSuccess).toLocaleString()}\n下次更新：${new Date(account.nextRefresh).toLocaleString()}${account.error ? '\n更新失败：' + account.error : ''}`).join('\n\n') || '尚未启用自动登录';
-    } catch { status.textContent = '无法读取自动登录状态'; }
-  }
+  async function refresh() { await window.hikSession?.refresh(); }
   async function submit(enabled) {
     if (enabled && !password.value) { result.textContent = '请填写密码'; return; }
     save.disabled = disable.disabled = username.disabled = password.disabled = team.disabled = true;
@@ -32,6 +25,7 @@
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || '保存失败');
+      window.hikSession?.accept(data, 'password');
       if (data.requiresConfirmation) {
         confirmation = true;
         save.textContent = '确认保存并更新';
@@ -47,5 +41,4 @@
   }
   form.addEventListener('submit', event => { event.preventDefault(); submit(true); });
   disable.addEventListener('click', () => submit(false));
-  refresh();
 })();

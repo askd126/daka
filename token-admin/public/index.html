@@ -12,15 +12,23 @@
     <main class="shell">
       <section class="hero">
         <div class="eyebrow"><span class="status-dot"></span> 青龙多账号管理</div>
-        <h1>添加打卡账号</h1>
-        <p>提交前会检测青龙中是否已有该账号。新账号验证 Token 后保存；已有账号会先提示，再确认需要的更新。</p>
+        <h1>我的打卡账号</h1>
+        <p>登录后查看本人的账号、团队和最近打卡状态。浏览器 Cookie 可保持登录；隐私窗口和其他浏览器需要单独登录。</p>
       </section>
 
+      <section id="my-account" class="card account-card" hidden aria-labelledby="my-account-title">
+        <div class="card-head"><div><p class="label">当前登录账号</p><h2 id="my-account-title"></h2></div><button id="logout-button" class="ghost" type="button">退出登录</button></div>
+        <p id="my-team"></p><p id="my-rule"></p><p id="attendance-error" role="status"></p>
+        <h3>今日打卡情况</h3><div class="table-wrap"><table><thead><tr><th>班次</th><th>应打时间</th><th>实打时间</th><th>状态</th></tr></thead><tbody id="today-rows"></tbody></table></div>
+        <h3>最近任务记录</h3><div id="recent-records"></div>
+        <button id="refresh-account" class="ghost" type="button">刷新本人状态</button>
+      </section>
+      <p id="session-message" role="status">尚未登录，请验证本人 Token 或使用账号密码登录。</p>
       <section class="card" aria-labelledby="form-title">
         <div class="card-head">
           <div>
             <p class="label">账号管理</p>
-            <h2 id="form-title">填写并保存账号</h2>
+            <h2 id="form-title">Token 登录与账号设置</h2>
           </div>
           <span id="panel-state" class="pill pending">正在连接青龙</span>
         </div>
@@ -67,7 +75,7 @@
           </div>
 
           <button id="submit-button" class="primary" type="submit">
-            <span class="button-label">验证并添加</span>
+            <span class="button-label">验证并登录</span>
             <span class="spinner" aria-hidden="true"></span>
           </button>
         </form>
@@ -84,11 +92,11 @@
             <input id="auto-username" autocomplete="username" inputmode="tel" maxlength="11" required />
             <label for="auto-password">密码</label>
             <input id="auto-password" type="password" autocomplete="current-password" maxlength="256" />
-            <label for="auto-team">考勤团队编号（多团队账号必填）</label>
-            <input id="auto-team" autocomplete="off" maxlength="64" placeholder="例如 TDxxxxxxxx；留空沿用已保存团队" />
-            <p>登录后会选择此团队，并验证考勤规则和今日状态；只有一个团队时可自动选择。</p>
-            <button id="auto-save" class="primary" type="submit">启用并立即更新</button>
-            <button id="auto-disable" class="ghost" type="button">停用此账号并删除保存的密码</button>
+            <label for="auto-team">切换考勤团队（选填）</label>
+            <input id="auto-team" autocomplete="off" maxlength="64" placeholder="留空使用当前已选择的考勤团队" />
+            <p>默认使用当前已选择的考勤团队，无需重复填写；仅切换团队时填写新编号。登录后会验证考勤规则和今日状态。</p>
+            <button id="auto-save" class="primary" type="submit">登录并启用自动更新</button>
+            <button id="auto-disable" class="ghost" type="button">停用本人自动更新并删除保存的密码</button>
           </form>
           <p id="auto-result" role="status" aria-live="polite"></p>
           <pre id="auto-status"></pre>
@@ -143,6 +151,7 @@
         <p><strong>局域网管理页面</strong><br />服务监听所有本机网卡。Token 和 SendKey 都不写入浏览器存储、URL 或应用日志，请勿映射到公网。</p>
       </section>
     </main>
+    <script src="/session.js" defer></script>
     <script src="/app.js" defer></script>
   <script src="/auto-login.js" defer></script>
   </body>

@@ -10,7 +10,7 @@ const submitButton = document.querySelector('#submit-button');
 const submitLabel = submitButton.querySelector('.button-label');
 const result = document.querySelector('#result');
 const panelState = document.querySelector('#panel-state');
-const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+const csrfToken = () => document.querySelector('meta[name="csrf-token"]').content;
 
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 与容器内 helper 的校验保持一致：旧版 SCT 开头，Turbo 版 sctp<N>t 开头。
@@ -19,7 +19,7 @@ let pendingConfirmation = null;
 
 const resetConfirmation = () => {
   pendingConfirmation = null;
-  submitLabel.textContent = '验证并添加';
+  submitLabel.textContent = '验证并登录';
 };
 
 const showResult = (message, type) => {
@@ -55,12 +55,14 @@ const checkAccount = async (token) => {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-CSRF-Token': csrfToken,
+      'X-CSRF-Token': csrfToken(),
     },
     body: JSON.stringify({ token }),
   });
   const data = await response.json();
   if (!response.ok || !data.success) throw new Error(data.error || '账号检测失败');
+  if (data.csrfToken) document.querySelector('meta[name="csrf-token"]').content = data.csrfToken;
+  if (typeof window !== 'undefined') window.hikSession?.accept(data, 'token');
   return data;
 };
 
@@ -111,7 +113,7 @@ form.addEventListener('submit', async (event) => {
       const pushNote = account.hasPushKey
         ? '已有通知 Key 保持不变'
         : '未填写通知 Key，不会上传通知 Key';
-      showResult(`账号已存在（${account.envName}），${pushNote}，未做任何更改。`, 'info');
+      showResult(`账号已存在（${account.envName}），${pushNote}，已登录，账号设置未做更改。`, 'info');
       return;
     }
 
@@ -132,16 +134,16 @@ form.addEventListener('submit', async (event) => {
       return;
     }
 
-    const confirmedNewWithUnknown = !account.exists && account.unverifiedCount > 0
+    const confirmedNewWithUnknown = !account.exists && account.checkIncomplete === true
       && pendingConfirmation?.mode === 'new-unverified'
       && pendingConfirmation?.token === token
       && pendingConfirmation?.sendKey === sendKey
-      && pendingConfirmation?.unverifiedCount === account.unverifiedCount;
-    if (!account.exists && account.unverifiedCount > 0 && !confirmedNewWithUnknown) {
+      && pendingConfirmation?.checkIncomplete === account.checkIncomplete;
+    if (!account.exists && account.checkIncomplete === true && !confirmedNewWithUnknown) {
       pendingConfirmation = { mode: 'new-unverified', token, sendKey,
-        unverifiedCount: account.unverifiedCount };
+        checkIncomplete: account.checkIncomplete };
       submitLabel.textContent = '确认新增账号';
-      showResult(`有 ${account.unverifiedCount} 个旧账号的 Token 已失效，无法核对账号 ID。请先核对青龙中的账号；若确定是新账号，再次点击确认新增。`, 'info');
+      showResult('部分旧账号无法核对身份，请核对后再次点击确认新增本人账号。', 'info');
       return;
     }
 
@@ -149,7 +151,7 @@ form.addEventListener('submit', async (event) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken,
+        'X-CSRF-Token': csrfToken(),
       },
       body: JSON.stringify({ token, ...(sendKey ? { sendKey } : {}),
         confirmExisting: confirmedExisting, confirmNewWithUnknown: confirmedNewWithUnknown }),
@@ -157,12 +159,13 @@ form.addEventListener('submit', async (event) => {
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.error || '提交失败');
 
+    if (typeof window !== 'undefined') window.hikSession?.refresh();
     if (data.requiresConfirmation) {
       if (data.checkIncomplete) {
         pendingConfirmation = { mode: 'new-unverified', token, sendKey,
-          unverifiedCount: data.unverifiedCount };
+          checkIncomplete: data.checkIncomplete };
         submitLabel.textContent = '确认新增账号';
-        showResult(`有 ${data.unverifiedCount} 个旧账号无法核对账号 ID，请核对后再次点击确认新增。`, 'info');
+        showResult('部分旧账号无法核对身份，请核对后再次点击确认新增本人账号。', 'info');
       } else {
         pendingConfirmation = { mode: 'existing', token, sendKey, envName: data.envName,
           sameToken: data.sameToken, hasPushKey: data.hasPushKey };
