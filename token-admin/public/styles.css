@@ -44,6 +44,28 @@ body::before {
   position: relative;
 }
 
+.login-state {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100% - 32px);
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  backdrop-filter: blur(18px);
+  font-size: 13px;
+  font-weight: 700;
+}
+.login-state-dot { flex: 0 0 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.login-state.online { color: var(--green-dark); }
+#login-state-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .hero { margin-bottom: 28px; }
 
 .eyebrow {
@@ -313,7 +335,7 @@ kbd {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 560px) {
-  .shell { padding-top: 40px; }
+  .shell { padding-top: 80px; }
   .card { padding: 22px 18px; border-radius: 20px; }
   .card-head { align-items: center; }
   .guide { padding: 22px 18px; }

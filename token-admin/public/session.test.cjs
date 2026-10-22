@@ -7,7 +7,7 @@ test('切换账号时清空旧 DOM，迟到的旧账号响应不能覆盖新账�
   const element = () => ({ hidden: true, value: '', content: '', children: [], _text: '', listeners: {},
     set textContent(value) { this._text = value; this.children = []; }, get textContent() { return this._text; },
     appendChild(child) { this.children.push(child); }, addEventListener(name, fn) { this.listeners[name] = fn; } });
-  const selectors = ['#token', '#send-key', '#auto-username', '#auto-password', '#auto-team', '#result', '#auto-result', '#my-account', '#my-account-title', '#my-team', '#my-rule', '#attendance-error', '#today-rows', '#recent-records', '#auto-status', '#session-message', '#refresh-account', '#logout-button', 'meta[name="csrf-token"]'];
+  const selectors = ['#login-state', '#login-state-label', '#token', '#send-key', '#auto-username', '#auto-password', '#auto-team', '#result', '#auto-result', '#my-account', '#my-account-title', '#my-team', '#my-rule', '#attendance-error', '#today-rows', '#recent-records', '#auto-status', '#session-message', '#refresh-account', '#logout-button', 'meta[name="csrf-token"]'];
   const elements = Object.fromEntries(selectors.map(key => [key, element()]));
   const calls = [];
   const window = { events: {}, addEventListener(name, fn) { this.events[name] = fn; } };
@@ -23,9 +23,17 @@ test('切换账号时清空旧 DOM，迟到的旧账号响应不能覆盖新账�
   calls[1](response('用户B')); await current;
   calls[0](response('用户A')); await previous;
   assert.equal(elements['#my-account-title'].textContent, '用户B');
+  assert.equal(elements['#login-state-label'].textContent, '已登录 · 用户B');
+  assert.equal(elements['#login-state'].className, 'login-state online');
   assert.equal(elements['#auto-status'].textContent.includes('用户A'), false);
   window.events.pagehide();
   assert.equal(elements['#my-account'].hidden, true);
   assert.equal(elements['#my-account-title'].textContent, '');
   assert.equal(elements['#auto-status'].textContent, '');
+  assert.equal(elements['#login-state-label'].textContent, '未登录');
+  assert.equal(elements['#login-state'].className, 'login-state');
+  const anonymous = window.hikSession.refresh();
+  calls[2]({ ok: true, json: async () => ({ success: true, authenticated: false }) });
+  await anonymous;
+  assert.equal(elements['#login-state-label'].textContent, '未登录');
 });

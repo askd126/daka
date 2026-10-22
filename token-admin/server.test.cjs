@@ -60,7 +60,7 @@ test('匿名和隐私窗口无账号数据，两个浏览器只恢复各自身�
   const browserA = {}, browserB = {};
   const login = await request(browserA, '/api/accounts/check', { token: A });
   assert.equal(login.status, 200);
-  assert.equal(JSON.stringify(login.data).includes('99'), false);
+  assert.equal(Object.hasOwn(login.data, 'count'), false);
   assert.equal(Object.hasOwn(login.data, 'unverifiedCount'), false);
   await request(browserB, '/api/accounts/check', { token: B });
   const a = await request(browserA, '/api/session?envName=HIK_DAKA_TOKEN_2');

@@ -2,8 +2,13 @@
 (() => {
   const $ = selector => document.querySelector(selector);
   let revision = 0;
+  const loginState = name => {
+    $('#login-state').className = name ? 'login-state online' : 'login-state';
+    $('#login-state-label').textContent = name ? `已登录 · ${name}` : '未登录';
+  };
   const clear = () => {
     revision++;
+    loginState();
     $('#my-account').hidden = true;
     $('#result').hidden = true; $('#result').textContent = ''; $('#auto-result').textContent = '';
     for (const selector of ['#my-account-title', '#my-team', '#my-rule', '#attendance-error', '#today-rows', '#recent-records', '#auto-status']) $(selector).textContent = '';
@@ -14,6 +19,7 @@
     if (!data.authenticated) { clear(); $('#session-message').textContent = '尚未登录，请验证本人 Token 或使用账号密码登录。'; return; }
     const account = data.account;
     $('#my-account-title').textContent = account.personName || account.accountName || '本人账号';
+    loginState($('#my-account-title').textContent);
     $('#my-team').textContent = `当前考勤团队：${account.teamNo || data.autoLogin?.teamNo || '当前登录团队'}`;
     $('#my-rule').textContent = account.rule || '';
     $('#attendance-error').textContent = account.attendanceError || '';
