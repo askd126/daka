@@ -451,6 +451,18 @@ const getConfiguredAccounts = (environment = process.env) => {
   });
 };
 
+const accountDelaySeconds = (envName, shift, defaultMax, environment, random) => {
+  const name = envName.replace('HIK_DAKA_TOKEN', `HIK_DAKA_DELAY_${shift.toUpperCase()}`);
+  const value = String(environment[name] ?? '').trim();
+  const match = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(value);
+  const min = value ? Number(match?.[1]) : 0;
+  const max = value ? Number(match?.[2] ?? match?.[1]) : Math.floor(defaultMax);
+  if (!Number.isInteger(min) || !Number.isInteger(max) || min > max || max > 7200) {
+    throw new Error(`环境变量 ${name} 无效：请输入 0 到 7200 的整数秒数，或较小值-较大值`);
+  }
+  return min === max ? min : min + Math.floor(random() * (max - min + 1));
+};
+
 const STATUS_ICONS = {
   success: '✅',
   skipped: '⏭️',
@@ -787,6 +799,42 @@ const recordAccountResult = (result, shift, filename = '/ql/data/config/hik-atte
   catch { log('无法保存本次考勤记录'); }
 };
 
+const runScheduledAccounts = (accounts, config, args, shift, {
+  environment = process.env, wait = sleep, random = Math.random, run = runWithRecovery,
+  notify = sendPersonalNotification, record = recordAccountResult,
+} = {}) => Promise.all(accounts.map(async (account) => {
+  let result;
+  try {
+    const delay = accountDelaySeconds(account.envName, shift, args.delaySeconds, environment, random);
+    if (!args.checkOnly && delay > 0) {
+      log(`[${account.envName}] 独立等待 ${delay} 秒后执行`);
+      await wait(delay * 1000);
+    }
+    result = await run(account, config, args, shift);
+  } catch (error) {
+    const accountName = error.accountName || account.envName;
+    result = {
+      accountName,
+      expiryEvent: error.expiryEvent,
+      accountId: error.accountId,
+      personName: error.personName,
+      status: 'failed',
+      message: error.message,
+      rule: error.rule,
+      details: error.details,
+      attempts: error.attempts,
+    };
+    log(`[${accountName}] 处理失败：${error.message}`);
+  }
+
+  // 单个账号完成后即发个人通知，最终汇总保留原账号顺序。
+  if (!args.checkOnly) {
+    result.pushError = await notify(account, shift, result, config);
+    record(result, shift);
+  }
+  return result;
+}));
+
 const main = async () => {
   const args = parseArgs();
   const accounts = getConfiguredAccounts();
@@ -835,40 +883,7 @@ const main = async () => {
     log('官方节假日检查通过');
   }
 
-  if (!args.checkOnly && args.delaySeconds > 0) {
-    const delay = Math.floor(Math.random() * (args.delaySeconds + 1));
-    log(`所有账号统一随机等待 ${delay} 秒后执行`);
-    await sleep(delay * 1000);
-  }
-
-  const results = [];
-  for (const account of accounts) {
-    let result;
-    try {
-      result = await runWithRecovery(account, config, args, shift);
-    } catch (error) {
-      const accountName = error.accountName || account.envName;
-      result = {
-        accountName,
-        expiryEvent: error.expiryEvent,
-        accountId: error.accountId,
-        personName: error.personName,
-        status: 'failed',
-        message: error.message,
-        rule: error.rule,
-        details: error.details,
-        attempts: error.attempts,
-      };
-      log(`[${accountName}] 处理失败：${error.message}`);
-    }
-
-    // 每个账号处理完立刻推给本人：推送失败只记录，不影响打卡结果和其他账号。
-    if (!args.checkOnly) {
-      result.pushError = await sendPersonalNotification(account, shift, result, config);
-    }
-    if (!args.checkOnly) recordAccountResult(result, shift);
-    results.push(result);
-  }
+  const results = await runScheduledAccounts(accounts, config, args, shift);
 
   if (!args.checkOnly) await sendSummaryNotification(shift, results);
 
@@ -903,6 +918,7 @@ module.exports = {
   getRule,
   recordAccountResult,
   runWithRecovery,
+  runScheduledAccounts,
   recoverExpiredAccount,
   makeApiError,
   withRetry,

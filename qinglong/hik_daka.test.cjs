@@ -11,6 +11,61 @@ script.filename = filename;
 script.paths = Module._nodeModulePaths(__dirname);
 script._compile(fs.readFileSync(filename, 'utf8'), filename);
 const { classifyHolidayDate, isOnLeave } = script.exports;
+
+test('每个账号从同一时点独立等待，较快账号不等前一个长延时账号，仍按账号顺序汇总', async () => {
+  const accounts = ['HIK_DAKA_TOKEN', 'HIK_DAKA_TOKEN_2', 'HIK_DAKA_TOKEN_3'].map(envName => ({ envName }));
+  const timers = new Map();
+  const started = [];
+  const notified = [];
+  const { runScheduledAccounts } = script.exports;
+  const pending = runScheduledAccounts(accounts, {}, { delaySeconds: 2400 }, 'evening', {
+    environment: {
+      HIK_DAKA_DELAY_EVENING: '90',
+      HIK_DAKA_DELAY_EVENING_2: '10-20',
+      HIK_DAKA_DELAY_EVENING_3: '20-10',
+      HIK_DAKA_DELAY_MORNING_2: '300',
+    },
+    random: () => 0.5,
+    wait: ms => new Promise(resolve => timers.set(ms, resolve)),
+    run: async ({ envName }) => { started.push(envName); return { accountName: envName, status: 'success' }; },
+    notify: async (_account, _shift, result) => { notified.push(result); return ''; },
+    record: () => {},
+  });
+  assert.deepEqual([...timers.keys()], [90000, 15000]);
+  assert.deepEqual(started, []);
+  timers.get(15000)();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started, ['HIK_DAKA_TOKEN_2']);
+  assert.ok(notified.some(result => result.accountName === 'HIK_DAKA_TOKEN_2'));
+  timers.get(90000)();
+  const results = await pending;
+  assert.deepEqual(results.map(result => result.accountName), accounts.map(account => account.envName));
+  assert.deepEqual(results.map(result => result.status), ['success', 'success', 'failed']);
+  assert.match(results[2].message, /HIK_DAKA_DELAY_EVENING_3/);
+});
+
+test('默认班次范围逐账号取样，设 0 则立即开始，检查模式不等待、不通知也不写记录', async () => {
+  const accounts = ['HIK_DAKA_TOKEN', 'HIK_DAKA_TOKEN_2', 'HIK_DAKA_TOKEN_3'].map(envName => ({ envName }));
+  const timers = [];
+  const draws = [0.25, 0.75];
+  const deps = {
+    environment: { HIK_DAKA_DELAY_MORNING_3: '0', HIK_DAKA_DELAY_EVENING_2: '3000' },
+    random: () => draws.shift(),
+    wait: async ms => { timers.push(ms); },
+    run: async () => ({ status: 'skipped' }),
+    notify: async () => '',
+    record: () => {},
+  };
+  const { runScheduledAccounts } = script.exports;
+  const scheduled = await runScheduledAccounts(accounts, {}, { delaySeconds: 300 }, 'morning', deps);
+  assert.deepEqual(timers, [75000, 225000]);
+  assert.ok(scheduled.every(result => result.status === 'skipped'));
+  const forbidden = () => assert.fail('检查模式不应等待、通知或写历史');
+  const checked = await runScheduledAccounts(accounts, {}, { checkOnly: true, delaySeconds: 300 }, 'morning', {
+    ...deps, random: () => 0.5, wait: forbidden, notify: forbidden, record: forbidden,
+  });
+  assert.ok(checked.every(result => result.status === 'skipped'));
+});
 test('过期仅恢复一次，更新后继续；检查模式不恢复，普通错误不恢复', async () => {
   const { runWithRecovery } = script.exports;
   const expired = () => Object.assign(new Error('expired'), { code: 'AUTH_EXPIRED' });
